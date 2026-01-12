@@ -8,8 +8,9 @@
 
 | Folder / File | Description |
 |--------------|-------------|
-| `Data/` | Processed and raw hydroacoustic datasets |
-| `EDA/` | Data Exploratory Analysis |
-| `Recurrent_Neural_Network/` | RNN models and training scripts |
-| `Resources/` | External Repositories and Additional Resources |
-| `README.md` | Project documentation |
+| [`Data/`](Data/) | Processed and raw hydroacoustic datasets |
+| [`EDA/`](EDA/) | Data Exploratory Analysis |
+| [`Recurrent_Neural_Network/`](Recurrent_Neural_Network/) | RNN models and training scripts |
+| [`Resources/`](Resources/) | External repositories and additional resources |
+| [`README.md`](README.md) | Project documentation |
+
