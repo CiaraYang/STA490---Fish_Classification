@@ -1,4 +1,4 @@
-# STA490---Fish
+# STA490---Fish_Classification
 
 ## Overview
 
