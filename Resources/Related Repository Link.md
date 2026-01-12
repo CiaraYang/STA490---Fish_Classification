@@ -1,5 +1,0 @@
-## Related Repositories
-
-📁 [WidebandClassification](https://github.com/JessLeivesley/WidebandClassification)  
-
-📁 [FishTetherExperiment](https://github.com/WidebandPingFest/FishTetherExperiment)
