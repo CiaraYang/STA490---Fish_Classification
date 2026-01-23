@@ -13,7 +13,7 @@ library(ggiraph)
 library(gridExtra)
 
 # ===================== LOAD DATA =====================
-load("../../Data/Processed_Old_Data.Rdata")
+load("Data/Processed_Old_Data.Rdata")
 # ===================== DATA PREPARATION =====================
 
 trackdat <- processed_data_no200 %>% 
@@ -259,3 +259,4 @@ server <- function(input, output) {
 # ===================== RUN APP =====================
 
 shinyApp(ui = ui, server = server)
+
