@@ -34,7 +34,7 @@ summary(df)
 na_rate <- sort(colMeans(is.na(df)), decreasing = TRUE)
 head(na_rate, 15)
 
-# helper function
+# helper function.
 num_cols <- df %>%
   select(where(is.numeric)) %>%
   names()
