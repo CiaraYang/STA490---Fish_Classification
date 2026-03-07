@@ -1,0 +1,653 @@
+---
+title: "EDA Dashboard"
+output: html_document
+---
+```{r}
+mem.maxVSize()
+mem.maxVSize(32000)
+```
+
+```{r}
+install.packages("readr")
+install.packages("dplyr")
+install.packages("ggplot2")
+library(readr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+merged_data<- readRDS("~/Documents/School/STA490/Fish/full_data_merged.rds")
+```
+
+```{r}
+#remove negative depths
+merged_data <- merged_data %>%
+  filter(Depth >= 0)
+```
+
+```{r}
+Year = c("2024","2025")
+Month = c("June","Sept")
+kHz = c("070","200")
+Location = c("South","North")
+
+csv_grid_2024 = expand.grid(Year = factor(2024), Month = Month, kHz = kHz, Location = Location)
+csv_grid_2025 = expand.grid(Year = factor(2025), Month = "June", kHz = kHz, Location = Location)
+csv_grid = rbind(csv_grid_2024,csv_grid_2025)
+
+
+thermo_depth_csv <- tibble(csv_grid,
+                      thermo_depth = c(rep(c(12.3,20),times=4),12,12,12,12))
+
+thermo_depth_csv
+```
+
+```{r}
+merged_data <- merged_data %>%
+  left_join(
+    thermo_depth_csv,
+    by = c("Year", "Month", "Location", "kHz")
+  )
+```
+
+```{r}
+track_summary <- merged_data %>%
+  group_by(Year, Month, Location, kHz, Region_name) %>%
+  summarise(
+    thermo_depth = first(thermo_depth),
+    min_depth = min(Depth),
+    max_depth = max(Depth),
+    max_depth_diff = max_depth - min_depth,
+    n_unique_pings = n_distinct(Ping_index),
+    Species = case_when(
+      max_depth <= thermo_depth ~ "Alewife",
+      min_depth >= thermo_depth ~ "Rainbow smelt",
+      TRUE ~ "Crosses thermocline"
+    ),
+    .groups = "drop"
+  )
+```
+
+```{r}
+merged_data <- merged_data %>%
+  left_join(
+    track_summary %>%
+      select(Year, Month, Location, kHz, Region_name, Species),
+    by = c("Year", "Month", "Location", "kHz", "Region_name")
+  )
+```
+
+```{r}
+species_count_summary <- track_summary %>%
+  group_by(kHz, Species) %>%
+  summarise(
+    n_fish_no_filter = n(),
+   
+    # ratio_no_filter = 
+    .groups = "drop"
+  ) %>%
+  arrange(kHz, Species)
+```
+
+Since there are only very few cross thermocline records, we can remove it.
+```{r}
+merged_data <- merged_data %>%
+  filter(Species != "Crosses thermocline")
+```
+
+```{r}
+track_summary <- track_summary %>%
+  filter(Species != "Crosses thermocline")
+```
+
+```{r}
+# ==============================================================================
+# Fish Acoustic Track Distribution Dashboard
+# ==============================================================================
+# REQUIRED DATA:
+#   track_summary  — track-level summary (one row per track)
+#     Required columns: Species, kHz, n_unique_pings, max_depth_diff
+#
+#   merged_data    — ping-level acoustic data
+#     Required columns: Species, kHz, variable (= frequency numeric), value (= TS in dB)
+#     'variable' should be the acoustic frequency in kHz (numeric)
+#     'value'    should be the target strength in dB (numeric)
+#
+# Both objects must exist in your R environment before running shinyApp().
+# ==============================================================================
+
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(tidyr)
+library(bslib)
+library(DT)
+
+# ------------------------------------------------------------------------------
+# DATA PREP
+# ------------------------------------------------------------------------------
+track_data <- track_summary %>%
+  mutate(
+    ping_group = case_when(
+      n_unique_pings <= 5  ~ "1–5",
+      n_unique_pings <= 10 ~ "6–10",
+      n_unique_pings <= 20 ~ "11–20",
+      TRUE                 ~ "21+"
+    ),
+    ping_group = factor(ping_group, levels = c("1–5", "6–10", "11–20", "21+")),
+    kHz     = as.character(kHz),
+    Species = as.character(Species)
+  )
+
+# Target Strength spectrum: mean TS + IQR per species × frequency
+# 'variable' column in merged_data must hold frequency (kHz) as numeric
+ts_spectrum <- merged_data %>%
+  mutate(freq_kHz = as.numeric(as.character(variable))) %>%
+  filter(!is.na(freq_kHz), !is.na(value)) %>%
+  group_by(Species, freq_kHz) %>%
+  summarise(
+    mean_TS = mean(value, na.rm = TRUE),
+    q25_TS  = quantile(value, 0.25, na.rm = TRUE),
+    q75_TS  = quantile(value, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(Species = as.character(Species))
+
+all_species <- sort(unique(track_data$Species))
+all_khz     <- sort(unique(track_data$kHz))
+max_thresh  <- ceiling(max(track_data$max_depth_diff, na.rm = TRUE))
+species_colours <- setNames(
+  scales::hue_pal()(length(all_species)),
+  all_species
+)
+ping_colours <- c("1–5" = "#3b82f6", "6–10" = "#06b6d4", "11–20" = "#10b981", "21+" = "#f59e0b")
+
+# ------------------------------------------------------------------------------
+# THEME HELPER
+# ------------------------------------------------------------------------------
+light_theme <- function(base_size = 13) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background    = element_rect(fill = "#ffffff", colour = NA),
+      panel.background   = element_rect(fill = "#ffffff", colour = NA),
+      panel.grid.major   = element_line(colour = "#f1f5f9"),
+      panel.grid.minor   = element_blank(),
+      panel.grid.major.x = element_blank(),
+      axis.text          = element_text(colour = "#64748b"),
+      axis.title         = element_text(colour = "#475569", face = "bold"),
+      strip.text         = element_text(colour = "#0f172a", face = "bold", size = base_size + 1),
+      strip.background   = element_rect(fill = "#f8fafc", colour = "#e2e8f0"),
+      plot.title         = element_text(colour = "#0f172a", face = "bold", size = base_size + 4, margin = margin(b = 6)),
+      plot.subtitle      = element_text(colour = "#94a3b8", size = base_size - 1, margin = margin(b = 12)),
+      legend.background  = element_rect(fill = "#ffffff", colour = NA),
+      legend.key         = element_rect(fill = "#ffffff", colour = NA),
+      legend.text        = element_text(colour = "#475569"),
+      legend.title       = element_text(colour = "#475569", face = "bold"),
+      plot.margin        = margin(16, 16, 16, 16)
+    )
+}
+
+# ------------------------------------------------------------------------------
+# UI
+# ------------------------------------------------------------------------------
+ui <- fluidPage(
+  theme = bs_theme(
+    version   = 5,
+    bootswatch = "flatly",
+    primary   = "#2563eb",
+    base_font = font_google("DM Sans")
+  ),
+
+  tags$head(tags$style(HTML("
+    body { background: #f8fafc !important; }
+
+    /* ── Header ── */
+    .app-header {
+      background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+      border-bottom: 1px solid #e2e8f0;
+      padding: 22px 32px 18px;
+      margin-bottom: 0;
+    }
+    .app-eyebrow {
+      font-size: 10px; letter-spacing: 3px; color: #2563eb;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .app-title   { font-size: 24px; font-weight: 700; color: #0f172a; margin: 0; }
+    .app-sub     { font-size: 13px; color: #64748b; margin: 6px 0 0; }
+
+    /* ── Sidebar ── */
+    .sidebar-panel {
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
+      min-height: 100vh;
+      padding: 24px 18px;
+    }
+    .ctrl-label {
+      font-size: 10px; letter-spacing: 2px; color: #94a3b8;
+      text-transform: uppercase; margin-bottom: 8px; margin-top: 20px;
+    }
+    .ctrl-label:first-child { margin-top: 0; }
+
+    /* ── KPI cards ── */
+    .kpi-row      { display: flex; gap: 16px; margin: 24px 28px 20px; flex-wrap: wrap; }
+    .kpi-card     { flex: 1; min-width: 160px; background: #ffffff; border: 1px solid #e2e8f0;
+                    border-radius: 12px; padding: 16px 20px;
+                    box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+    .kpi-label    { font-size: 10px; letter-spacing: 2px; color: #94a3b8;
+                    text-transform: uppercase; margin-bottom: 6px; }
+    .kpi-value    { font-size: 28px; font-weight: 700; }
+
+    /* ── Tabs ── */
+    .nav-tabs { border-bottom: 1px solid #e2e8f0 !important; margin: 0 28px; }
+    .nav-tabs .nav-link          { color: #94a3b8 !important; border: none !important;
+                                   padding: 10px 18px; font-weight: 600; font-size: 13px; }
+    .nav-tabs .nav-link.active   { color: #2563eb !important; background: none !important;
+                                   border-bottom: 2px solid #2563eb !important; }
+    .nav-tabs .nav-link:hover    { color: #475569 !important; }
+    .tab-content { padding: 24px 28px; }
+
+    /* ── Plot cards ── */
+    .plot-card  { background: #ffffff; border: 1px solid #e2e8f0;
+                  border-radius: 12px; padding: 20px; margin-bottom: 18px;
+                  box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+    .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+    .card-sub   { font-size: 12px; color: #94a3b8; margin-bottom: 14px; }
+
+    /* ── Reset button ── */
+    #reset_btn { background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569;
+                 border-radius: 8px; font-size: 13px; padding: 7px 16px; }
+    #reset_btn:hover { border-color: #2563eb; color: #2563eb; }
+
+    /* ── Table ── */
+    .dataTables_wrapper { color: #334155 !important; }
+    table.dataTable thead th { color: #64748b !important; background: #f8fafc !important;
+                                border-bottom: 1px solid #e2e8f0 !important; }
+    table.dataTable tbody td { border-bottom: 1px solid #f1f5f9 !important; color: #334155; }
+    table.dataTable tbody tr:hover td { background: #f1f5f9 !important; }
+  "))),
+
+  # ── Header ──────────────────────────────────────────────────────────────────
+  div(class = "app-header",
+    div(style = "display:flex; justify-content:space-between; align-items:flex-start;",
+      div(
+        div(class = "app-eyebrow", "Acoustic Track Explorer"),
+        tags$h1(class = "app-title", "Fish Track Distribution Dashboard"),
+        p(class = "app-sub", "Filter by depth threshold · species · frequency to explore track-length composition & target strength")
+      ),
+      actionButton("reset_btn", "↺  Reset filters", style = "margin-top:8px;")
+    )
+  ),
+
+  # ── Body layout: sidebar + main ──────────────────────────────────────────────
+  fluidRow(
+
+    # Sidebar
+    column(2,
+      div(class = "sidebar-panel",
+
+        div(class = "ctrl-label", "Max Depth Diff (m)"),
+        div(style = "display:flex; justify-content:space-between; align-items:baseline;",
+          span(style = "font-size:22px; font-weight:700; color:#2563eb;", textOutput("thresh_display", inline = TRUE)),
+          span(style = "font-size:12px; color:#94a3b8;", "m")
+        ),
+        sliderInput("depth_thresh", label = NULL,
+          min = 0, max = max_thresh, value = 1.0, step = 0.1, width = "100%"),
+
+        div(class = "ctrl-label", "Species"),
+        checkboxGroupInput("species_select", label = NULL,
+          choices  = all_species,
+          selected = all_species),
+
+        div(class = "ctrl-label", "Frequency (kHz)"),
+        checkboxGroupInput("khz_select", label = NULL,
+          choices  = all_khz,
+          selected = all_khz)
+      )
+    ),
+
+    # Main panel
+    column(10,
+
+      # KPI cards
+      div(class = "kpi-row",
+        div(class = "kpi-card",
+          div(class = "kpi-label", "Depth threshold"),
+          div(class = "kpi-value", style = "color:#2563eb;", textOutput("kpi_thresh", inline = TRUE))
+        ),
+        div(class = "kpi-card",
+          div(class = "kpi-label", "Tracks retained"),
+          div(class = "kpi-value", style = "color:#16a34a;", textOutput("kpi_retained", inline = TRUE))
+        ),
+        div(class = "kpi-card",
+          div(class = "kpi-label", "Retention rate"),
+          div(class = "kpi-value", style = "color:#d97706;", textOutput("kpi_rate", inline = TRUE))
+        )
+      ),
+
+      # Tabs
+      tabsetPanel(id = "main_tabs", type = "tabs",
+
+        # ── Tab 1: Ping Composition ──────────────────────────────────────────
+        tabPanel("Ping Composition",
+          div(class = "tab-content",
+            div(class = "plot-card",
+              div(class = "card-title", "Track-length composition by species & frequency"),
+              div(class = "card-sub", "Proportion of ping groups at the current depth threshold"),
+              plotOutput("stackedPlot", height = "480px")
+            )
+          )
+        ),
+
+        # ── Tab 2: Track Counts ──────────────────────────────────────────────
+        tabPanel("Track Counts",
+          div(class = "tab-content",
+            div(class = "plot-card",
+              div(class = "card-title", "Retained tracks by species & frequency"),
+              div(class = "card-sub", "Absolute number of tracks passing the depth filter"),
+              plotOutput("countPlot", height = "320px")
+            ),
+            div(class = "plot-card",
+              div(class = "card-title", "Retention curve across all thresholds"),
+              div(class = "card-sub", "How total track count changes as you move the threshold — helps you pick the right cut-off"),
+              plotOutput("retentionCurve", height = "280px")
+            )
+          )
+        ),
+
+        # ── Tab 3: Target Strength ───────────────────────────────────────────
+        tabPanel("Target Strength Spectrum",
+          div(class = "tab-content",
+            div(class = "plot-card",
+              div(class = "card-title", "Mean target strength spectrum by species"),
+              div(class = "card-sub", "Dashed vertical lines mark the transducer frequencies selected in the sidebar"),
+              plotOutput("tsPlot", height = "420px")
+            )
+          )
+        ),
+
+        # ── Tab 4: Data Table ────────────────────────────────────────────────
+        tabPanel("Summary Table",
+          div(class = "tab-content",
+            div(class = "plot-card",
+              div(class = "card-title", "Detailed summary"),
+              div(class = "card-sub", "Proportion and count of each ping group per species × frequency"),
+              DTOutput("summaryTable")
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+# ------------------------------------------------------------------------------
+# SERVER
+# ------------------------------------------------------------------------------
+server <- function(input, output, session) {
+
+  # Reset button
+  observeEvent(input$reset_btn, {
+    updateSliderInput(session, "depth_thresh", value = 1.0)
+    updateCheckboxGroupInput(session, "species_select", selected = all_species)
+    updateCheckboxGroupInput(session, "khz_select",     selected = all_khz)
+  })
+
+  # Guard: ensure at least one selection in each group
+  observe({
+    if (length(input$species_select) == 0)
+      updateCheckboxGroupInput(session, "species_select", selected = all_species[1])
+    if (length(input$khz_select) == 0)
+      updateCheckboxGroupInput(session, "khz_select", selected = all_khz[1])
+  })
+
+  # ── Filtered data ────────────────────────────────────────────────────────────
+  filtered <- reactive({
+    req(input$species_select, input$khz_select)
+    track_data %>%
+      filter(
+        max_depth_diff <= input$depth_thresh,
+        Species %in% input$species_select,
+        kHz     %in% input$khz_select
+      )
+  })
+
+  # Denominator: tracks matching species+kHz selection, ignoring depth threshold
+  eligible <- reactive({
+    req(input$species_select, input$khz_select)
+    track_data %>%
+      filter(Species %in% input$species_select,
+             kHz     %in% input$khz_select)
+  })
+
+  # ── KPIs ─────────────────────────────────────────────────────────────────────
+  output$thresh_display <- renderText({ paste0(input$depth_thresh, " m") })
+  output$kpi_thresh     <- renderText({ paste0("\u2264 ", input$depth_thresh, " m") })
+  output$kpi_retained   <- renderText({ comma(nrow(filtered())) })
+  output$kpi_rate       <- renderText({ percent(nrow(filtered()) / nrow(eligible()), accuracy = 0.1) })
+
+  # ── Summary data for stacked bars ───────────────────────────────────────────
+  summary_data <- reactive({
+    df <- filtered()
+    req(nrow(df) > 0)
+
+    df %>%
+      group_by(Species, kHz, ping_group) %>%
+      summarise(n_tracks = n(), .groups = "drop") %>%
+      complete(
+        Species    = unique(df$Species),
+        kHz        = unique(df$kHz),
+        ping_group = c("1–5", "6–10", "11–20", "21+"),
+        fill       = list(n_tracks = 0)
+      ) %>%
+      mutate(ping_group = factor(ping_group, levels = c("21+", "11–20", "6–10", "1–5"))) %>%
+      group_by(Species, kHz) %>%
+      mutate(
+        total_tracks = sum(n_tracks),
+        proportion   = if_else(total_tracks > 0, n_tracks / total_tracks, 0)
+      ) %>%
+      ungroup()
+  })
+
+  # ── Plot 1: Stacked proportion bars ─────────────────────────────────────────
+  output$stackedPlot <- renderPlot({
+    df <- summary_data()
+    req(nrow(df) > 0)
+
+    # Compute label y-position = midpoint of each segment in the stack
+    # Stack order bottom-to-top: 1-5, 6-10, 11-20, 21+
+    # Factor levels are reversed (21+first) so ggplot stacks 1-5 at bottom
+    # We must cumsum in the actual visual bottom-to-top order
+    df <- df %>%
+      mutate(ping_group = factor(ping_group, levels = c("21+", "11–20", "6–10", "1–5"))) %>%
+      arrange(Species, kHz, desc(ping_group)) %>%   # desc = 1-5 first (bottom)
+      group_by(Species, kHz) %>%
+      mutate(
+        cum_prop  = cumsum(proportion),
+        label_y   = cum_prop - proportion / 2,
+        label_txt = ifelse(proportion >= 0.04, paste0(round(proportion * 100, 1), "%"), "")
+      ) %>%
+      ungroup()
+
+    ggplot(df, aes(x = kHz, y = proportion, fill = ping_group)) +
+      geom_col(width = 0.8, colour = "#ffffff", linewidth = 0.3) +
+      geom_text(aes(y = label_y, label = label_txt),
+                colour = "white", fontface = "bold", size = 3.4) +
+      facet_wrap(~ Species, nrow = 1) +
+      scale_y_continuous(labels = percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.02))) +
+      scale_fill_manual(values = ping_colours, name = "Ping group",
+                        breaks = c("1–5", "6–10", "11–20", "21+")) +
+      labs(
+        title    = paste0("Track-length composition  \u2014  depth threshold \u2264 ", input$depth_thresh, " m"),
+        subtitle = "Each bar shows the proportion of tracks in each ping-count category",
+        x = "Transducer frequency (kHz)", y = "Proportion of tracks"
+      ) +
+      light_theme() +
+      theme(legend.position = "right")
+  }, bg = "#ffffff")
+
+  # ── Plot 2: Count bars ───────────────────────────────────────────────────────
+  output$countPlot <- renderPlot({
+    df_retained <- filtered() %>%
+      count(Species, kHz, name = "n_retained")
+    req(nrow(df_retained) > 0)
+
+    # Unfiltered totals (all tracks, ignoring depth threshold)
+    df_total <- track_data %>%
+      filter(Species %in% input$species_select, kHz %in% input$khz_select) %>%
+      count(Species, kHz, name = "n_total")
+
+    df <- left_join(df_total, df_retained, by = c("Species", "kHz")) %>%
+      mutate(n_retained = replace_na(n_retained, 0),
+             pct_label  = paste0(comma(n_retained), "\n(", percent(n_retained / n_total, accuracy = 0.1), ")"))
+
+    ggplot(df, aes(x = kHz, group = Species)) +
+      # Background dashed outline bar = total before filter
+      geom_col(aes(y = n_total, fill = Species),
+               position = position_dodge(width = 0.75), width = 0.65,
+               alpha = 0.15, colour = "grey40", linewidth = 0.5, linetype = "dashed") +
+      # Solid filled bar = retained after filter
+      geom_col(aes(y = n_retained, fill = Species),
+               position = position_dodge(width = 0.75), width = 0.65,
+               alpha = 0.9, colour = "#ffffff", linewidth = 0.3) +
+      # Label showing retained count + % of total
+      geom_text(aes(y = n_retained, label = pct_label),
+                position = position_dodge(width = 0.75),
+                vjust = -0.4, size = 3.2, colour = "#475569", lineheight = 0.9) +
+      scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.12))) +
+      scale_fill_manual(values = species_colours) +
+      labs(
+        title    = "Retained tracks by species & frequency",
+        subtitle = "Solid bar = retained after filter  ·  Dashed outline = total before filter",
+        x = "Transducer frequency (kHz)", y = "Number of tracks"
+      ) +
+      light_theme()
+  }, bg = "#ffffff")
+
+  # ── Plot 3: Retention curve ──────────────────────────────────────────────────
+  output$retentionCurve <- renderPlot({
+    thresholds <- seq(0, max_thresh, by = 0.25)
+
+    curve_df <- expand.grid(thresh = thresholds, Species = all_species, stringsAsFactors = FALSE) %>%
+      rowwise() %>%
+      mutate(n = sum(track_data$Species == Species & track_data$max_depth_diff <= thresh)) %>%
+      ungroup()
+
+    ggplot(curve_df, aes(x = thresh, y = n, colour = Species)) +
+      geom_line(linewidth = 1.5) +
+      geom_vline(xintercept = input$depth_thresh, colour = "#2563eb",
+                 linetype = "dashed", linewidth = 0.8) +
+      scale_colour_manual(values = species_colours) +
+      scale_y_continuous(labels = comma) +
+      labs(
+        title = "Retention curve",
+        x = "Max depth-difference threshold (m)", y = "Tracks retained"
+      ) +
+      light_theme()
+  }, bg = "#ffffff")
+
+  # ── Plot 4: Target Strength spectrum ─────────────────────────────────────────
+  output$tsPlot <- renderPlot({
+    req(nrow(ts_spectrum) > 0)
+
+    sp_filt <- ts_spectrum[ts_spectrum$Species %in% input$species_select, ]
+    req(nrow(sp_filt) > 0)
+
+    khz_num <- sort(as.numeric(input$khz_select))
+    y_min   <- min(sp_filt$q25_TS, na.rm = TRUE)
+    y_max   <- max(sp_filt$q75_TS, na.rm = TRUE)
+    y_range <- y_max - y_min
+    y_upper <- y_max + y_range * 0.22
+
+    # Build intersection data frame safely with base R
+    sp_vals <- unique(sp_filt$Species)
+    ints_list <- list()
+    for (k in khz_num) {
+      for (sp in sp_vals) {
+        sub <- ts_spectrum[ts_spectrum$Species == sp, ]
+        if (nrow(sub) == 0) next
+        idx <- which.min(abs(sub$freq_kHz - k))
+        ints_list[[length(ints_list) + 1]] <- data.frame(
+          khz     = k,
+          Species = sp,
+          nearest = sub$freq_kHz[idx],
+          ts_val  = sub$mean_TS[idx],
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+    intersections <- if (length(ints_list) > 0) do.call(rbind, ints_list) else NULL
+
+    # Build kHz label data frame for annotate
+    khz_labels <- data.frame(
+      x     = khz_num,
+      y     = y_upper,
+      label = paste0(khz_num, " kHz"),
+      stringsAsFactors = FALSE
+    )
+
+    p <- ggplot(sp_filt, aes(x = freq_kHz, colour = Species, fill = Species)) +
+      geom_ribbon(aes(ymin = q25_TS, ymax = q75_TS),
+                  alpha = 0.15, linewidth = 0, show.legend = FALSE) +
+      geom_line(aes(y = mean_TS), linewidth = 1.8)
+
+    # Add vlines + labels only if frequencies selected
+    if (length(khz_num) > 0) {
+      p <- p +
+        geom_vline(xintercept = khz_num, linetype = "dashed",
+                   colour = "#2563eb", linewidth = 0.6, alpha = 0.6) +
+        geom_label(data = khz_labels,
+                   aes(x = x, y = y, label = label),
+                   colour = "#2563eb", fill = "#eff6ff",
+                   label.size = 0.3, size = 3.4, fontface = "bold",
+                   vjust = 1, inherit.aes = FALSE)
+    }
+
+    p <- p +
+      scale_colour_manual(values = species_colours) +
+      scale_fill_manual(values = species_colours, guide = "none") +
+      scale_y_continuous(limits = c(y_min, y_upper)) +
+      labs(
+        title    = "Target Strength Spectrum by Species",
+        subtitle = "Solid line = mean TS  ·  Shaded band = IQR (25th–75th percentile)  ·  Dashed lines = active transducer channels",
+        x = "Frequency (kHz)", y = "Target Strength (dB)"
+      ) +
+      light_theme()
+
+    p
+  }, bg = "#ffffff")
+
+  # ── Table 2: Full summary ────────────────────────────────────────────────────
+  output$summaryTable <- renderDT({
+    summary_data() %>%
+      mutate(
+        proportion = round(proportion, 3),
+        ping_group = factor(ping_group, levels = c("1–5", "6–10", "11–20", "21+"))
+      ) %>%
+      arrange(Species, kHz, ping_group) %>%
+      select(Species, kHz, ping_group, n_tracks, total_tracks, proportion) %>%
+      rename(
+        `Ping group`    = ping_group,
+        `N tracks`      = n_tracks,
+        `Total (kHz)`   = total_tracks,
+        `Proportion`    = proportion
+      ) %>%
+      datatable(
+        rownames = FALSE,
+        filter   = "top",
+        options  = list(pageLength = 12, autoWidth = TRUE, scrollX = TRUE, dom = "tip"),
+        class    = "compact stripe"
+      ) %>%
+      formatPercentage("Proportion", digits = 1)
+  })
+}
+
+# ------------------------------------------------------------------------------
+# RUN
+# ------------------------------------------------------------------------------
+shinyApp(ui = ui, server = server)
+```
+
+
+
