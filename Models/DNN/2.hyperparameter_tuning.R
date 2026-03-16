@@ -8,6 +8,14 @@ set_random_seed(15)
 # input dimension
 input_dim <- ncol(x_train_dnn)
 
+# class weights for imbalanced data
+class_counts <- table(y_train)
+
+class_weight <- list(
+  "0" = as.numeric(sum(class_counts) / (2 * class_counts["Alewife"])),
+  "1" = as.numeric(sum(class_counts) / (2 * class_counts["Rainbow Smelt"]))
+)
+
 # build DNN model
 build_dnn_model <- function(input_dim,
                             hidden1 = 128,
@@ -49,7 +57,7 @@ grid_full <- expand.grid(
   dropout = c(0.2, 0.3, 0.4),
   l2 = c(0.0001, 0.001),
   lr = c(0.001, 0.0005),
-  batch_size = c(32, 64),
+  batch_size = c(32, 64, 128),
   stringsAsFactors = FALSE
 )
 
@@ -103,6 +111,7 @@ for (i in seq_len(nrow(grid_sub))) {
       epochs = 60,
       batch_size = grid_sub$batch_size[i],
       callbacks = make_callbacks(),
+      class_weight = class_weight,
       verbose = 0
     )
   
@@ -135,7 +144,6 @@ for (i in seq_len(nrow(grid_sub))) {
 # rank models
 tuning_results <- tuning_results[
   order(-tuning_results$best_val_auc,
-        -tuning_results$best_val_acc,
         tuning_results$best_val_loss),
 ]
 

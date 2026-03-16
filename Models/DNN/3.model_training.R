@@ -1,29 +1,26 @@
-# load packages
 library(dplyr)
 library(keras3)
 library(tensorflow)
 library(caret)
 library(pROC)
+library(tibble)
 
-# set seed
 set_random_seed(15)
 
-# select best hyperparameters
 best_param <- tuning_results[1, ]
 
-# input dimension
 input_dim <- ncol(x_train_dnn)
 
-# compute class weights
 train_tab <- table(y_train)
-cw <- as.numeric(train_tab[1] / train_tab[2])
-class_weights <- list("0" = 1, "1" = cw)
 
-# build final model
+class_weights <- list()
+class_weights[["0"]] <- as.numeric(sum(train_tab) / (2 * train_tab["Alewife"]))
+class_weights[["1"]] <- as.numeric(sum(train_tab) / (2 * train_tab["Rainbow Smelt"]))
+
 final_model <- keras_model_sequential() |>
   layer_dense(
     units = best_param$hidden1,
-    input_shape = input_dim,
+    input_shape = c(input_dim),
     kernel_regularizer = regularizer_l2(best_param$l2)
   ) |>
   layer_batch_normalization() |>
@@ -38,7 +35,6 @@ final_model <- keras_model_sequential() |>
   layer_dropout(rate = best_param$dropout) |>
   layer_dense(units = 2, activation = "softmax")
 
-# compile model
 final_model |>
   compile(
     optimizer = optimizer_adam(learning_rate = best_param$lr),
@@ -46,22 +42,22 @@ final_model |>
     metrics = c("accuracy", metric_auc(name = "auc"))
   )
 
-# define callbacks
 final_callbacks <- list(
   callback_early_stopping(
-    monitor = "val_loss",
+    monitor = "val_auc",
+    mode = "max",
     patience = 10,
     restore_best_weights = TRUE
   ),
   callback_reduce_lr_on_plateau(
-    monitor = "val_loss",
+    monitor = "val_auc",
+    mode = "max",
     factor = 0.5,
     patience = 4,
     min_lr = 1e-5
   )
 )
 
-# train final model
 final_history <- final_model |>
   fit(
     x = x_train_dnn,
@@ -74,19 +70,16 @@ final_history <- final_model |>
     verbose = 1
   )
 
-# evaluate on test set
 eval_result <- final_model |>
   evaluate(x_test_dnn, dummy_y_test, verbose = 0)
 
 print(eval_result)
 
-# predict class probabilities
 pred_probs <- final_model |>
-  predict(x_test_dnn)
+  predict(x_test_dnn, verbose = 0)
 
 prob_smelt <- pred_probs[, 2]
 
-# convert predicted probabilities to class labels
 pred_class_idx <- apply(pred_probs, 1, which.max)
 
 species_pred <- factor(
@@ -94,13 +87,8 @@ species_pred <- factor(
   levels = c("Alewife", "Rainbow Smelt")
 )
 
-# create true class labels
-true_labels <- factor(
-  ifelse(dummy_y_test[, 1] == 1, "Alewife", "Rainbow Smelt"),
-  levels = c("Alewife", "Rainbow Smelt")
-)
+true_labels <- factor(y_test, levels = c("Alewife", "Rainbow Smelt"))
 
-# confusion matrix
 cm <- confusionMatrix(
   data = species_pred,
   reference = true_labels,
@@ -109,7 +97,6 @@ cm <- confusionMatrix(
 
 print(cm)
 
-# compute ROC and AUC
 roc_obj <- roc(
   response = true_labels,
   predictor = prob_smelt,
@@ -120,7 +107,6 @@ roc_obj <- roc(
 test_auc <- as.numeric(auc(roc_obj))
 print(test_auc)
 
-# summarize evaluation metrics
 metrics_tbl_dnn <- tibble(
   loss = as.numeric(eval_result[["loss"]]),
   accuracy = as.numeric(eval_result[["accuracy"]]),
