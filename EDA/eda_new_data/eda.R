@@ -336,7 +336,7 @@ threshold_results <- lapply(thresholds, function(t) {
 
 threshold_results
 
-# Look into sample imbalance by transducer(after filtering)
+# Look into sample imbalance by transducer(after filtering by threshold = 1)
 imbalance_by_khz_no_unknown <- track_summary %>%
   filter(species %in% c("alewife", "rainbow smelt")) %>%
   count(kHz, species, name = "n_tracks") %>%
