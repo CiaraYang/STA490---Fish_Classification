@@ -178,39 +178,174 @@ thermo_depth_csv = tibble(
   thermo_depth=c(rep(c(12.3,20),times=4),12,12,12,12))
 
 tracks_70 %>%
-  filter(max_diff_depth < 0.6) %>%
+  mutate(recording_session = paste0(Year," ",Month,", ",Location," - ",kHz," kHz")) %>% 
+  filter(max_diff_depth < 1) %>%
   ggplot(aes(x = Region_name)) +
   geom_hline(
-    data = thermo_depth_csv %>% filter(kHz != "200"),
+    data = thermo_depth_csv %>%
+      filter(kHz != "200") %>%
+      mutate(recording_session = paste0(Year," ",Month,", ",Location," - ",kHz," kHz")),
     aes(yintercept = thermo_depth),
-    linetype="dashed",
-    color="blue"
+    linetype = "dashed",
+    color = "blue"
   ) +
-  geom_errorbar(aes(ymin=min_depth,
-                    ymax=max_depth)) +
-  facet_wrap(~Year + Month + Location + kHz,
-             scales="free_x") +
+  geom_errorbar(aes(ymin = min_depth,
+                    ymax = max_depth)) +
+  scale_y_reverse() +
+  facet_wrap(~ recording_session,
+             scales = "free_x") +
   theme_bw() +
-  theme(axis.text.x = element_blank())
+  theme(axis.text.x = element_blank()) +
+  labs(
+    title = "Track Min/Max Depth vs Thermocline (70 kHz)",
+    y = "Depth (m, 0 at surface)"
+  )
 
 tracks_200 %>%
-  filter(max_diff_depth < 0.6) %>%
+  mutate(recording_session = paste0(Year," ",Month,", ",Location," - ",kHz," kHz")) %>%
+  filter(max_diff_depth < 1) %>%
   ggplot(aes(x = Region_name)) +
   geom_hline(
-    data = thermo_depth_csv %>% filter(kHz == "200"),
+    data = thermo_depth_csv %>%
+      filter(kHz == "200") %>%
+      mutate(recording_session = paste0(Year," ",Month,", ",Location," - ",kHz," kHz")),
     aes(yintercept = thermo_depth),
     linetype = "dashed",
     color = "blue"
   ) +
   geom_errorbar(aes(ymin = min_depth, ymax = max_depth)) +
-  facet_wrap(~Year + Month + Location, scales = "free_x") +
+  scale_y_reverse() +
+  facet_wrap(~ recording_session,
+             scales = "free_x") +
   theme_bw() +
   theme(axis.text.x = element_blank()) +
-  labs(title = "Track Min/Max Depth vs Thermocline (200 kHz)")
+  labs(
+    title = "Track Min/Max Depth vs Thermocline (200 kHz)",
+    y = "Depth (m, 0 at surface)"
+  )
 
+# label data
+thermo_lookup <- thermo_depth_csv %>%
+  select(Year, Month, thermo_depth) %>%
+  distinct() %>%
+  mutate(Year = as.character(Year))
 
+full_data_clean <- full_data %>%
+  filter(!is.na(Depth), !is.na(value)) %>%
+  mutate(Year = as.character(Year))
 
+track_labels_all <- full_data_clean %>%
+  group_by(Region_name, Year, Month, Location, kHz) %>%
+  summarise(
+    min_depth = min(Depth, na.rm = TRUE),
+    max_depth = max(Depth, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    thermo_lookup,
+    by = c("Year", "Month")
+  ) %>%
+  mutate(
+    species = case_when(
+      is.na(thermo_depth) ~ NA_character_,
+      max_depth < thermo_depth ~ "Alewife",
+      min_depth > thermo_depth ~ "Rainbow Smelt",
+      min_depth <= thermo_depth & max_depth >= thermo_depth ~ "Crossing"
+    )
+  ) %>%
+  select(Region_name, Year, Month, Location, kHz, species)
 
+full_data <- full_data %>%
+  mutate(Year = as.character(Year)) %>%
+  left_join(
+    track_labels_all,
+    by = c("Region_name", "Year", "Month", "Location", "kHz")
+  )
 
+data_70 <- data_70 %>%
+  mutate(Year = as.character(Year)) %>%
+  left_join(
+    track_labels_all,
+    by = c("Region_name", "Year", "Month", "Location", "kHz")
+  )
 
+data_200 <- data_200 %>%
+  mutate(Year = as.character(Year)) %>%
+  left_join(
+    track_labels_all,
+    by = c("Region_name", "Year", "Month", "Location", "kHz")
+  )
 
+# create labeled full dataset object for downstream summaries
+full_data_labeled <- full_data
+
+# track-level summary for imbalance analysis
+track_summary <- full_data_labeled %>%
+  filter(!is.na(Depth), !is.na(value)) %>%
+  group_by(Region_name, Year, Month, Location, kHz) %>%
+  summarise(
+    species = first(na.omit(species)),
+    min_depth = min(Depth, na.rm = TRUE),
+    max_depth = max(Depth, na.rm = TRUE),
+    max_diff_depth = max_depth - min_depth,
+    n_pings = n(),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(species))
+
+# Look into spieces distribution
+full_data_labeled %>%
+  distinct(Region_name, Year, Month, Location, kHz, species) %>%
+  count(species)
+
+fish_counts_by_kHz <- full_data_labeled %>%
+  distinct(Region_name, Year, Month, Location, kHz, species) %>%
+  count(kHz, species) %>%
+  group_by(kHz) %>%
+  mutate(
+    percent_within_kHz = round(n / sum(n) * 100, 1)
+  ) %>%
+  ungroup()
+
+fish_counts_by_kHz
+
+# Look into species distribution under different thresholds
+no_threshold_results <- track_summary %>%
+  count(species) %>%
+  mutate(
+    threshold = NA_real_,
+    percent_within_threshold = round(n / sum(n) * 100, 1)
+  )
+
+threshold_results <- lapply(thresholds, function(t) {
+  
+  filtered_tracks <- track_summary %>%
+    filter(max_diff_depth <= t)
+  
+  filtered_tracks %>%
+    count(species) %>%
+    mutate(
+      threshold = t,
+      percent_within_threshold = round(n / sum(n) * 100, 1)
+    )
+  
+}) %>%
+  bind_rows() %>%
+  bind_rows(no_threshold_results) %>%
+  arrange(threshold, species)
+
+threshold_results
+
+# Look into sample imbalance by transducer(after filtering)
+imbalance_by_khz_no_unknown <- track_summary %>%
+  filter(species %in% c("alewife", "rainbow smelt")) %>%
+  count(kHz, species, name = "n_tracks") %>%
+  group_by(kHz) %>%
+  mutate(
+    total_tracks = sum(n_tracks),
+    percent_within_khz = round(n_tracks / total_tracks * 100, 1)
+  ) %>%
+  ungroup() %>%
+  arrange(kHz, desc(n_tracks))
+
+imbalance_by_khz_no_unknown
