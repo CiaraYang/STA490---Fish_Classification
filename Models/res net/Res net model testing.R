@@ -11,27 +11,31 @@ library(pROC)
 library(tibble)
 library(tidyr)
 library(ggplot2)
+# install.packages(abind)
+library(abind)
 
 ## ---- Load data ----
-load("Data/fish_cnn_data.RData")
-load("Data/resnet_tuning_results.RData")
+load("Resnet/fish_model_data_070_Resnet.Rdata")
+load("Resnet/resnet_tuning_results.RData")
 
 print(best_param_resnet)
 
-## ---- Class weights ----
-train_tab <- table(y_train)
-cw <- as.numeric(train_tab[1] / train_tab[2])
-class_weights <- list("0" = 1, "1" = cw)
+## ---- Combine train + validation for final fitting ----
+x_fit <- abind(x_train, x_validate, along = 1)
+dummy_y_fit <- rbind(dummy_y_train, dummy_y_val)
 
-## ---- Early stopping ----
-callbacks <- list(
-  callback_early_stopping(
-    monitor = "val_loss",
-    min_delta = 1e-3,
-    patience = 30,
-    restore_best_weights = TRUE
-  )
+y_fit <- factor(
+  c(as.character(y_train), as.character(y_validate)),
+  levels = c("Alewife", "Rainbow Smelt")
 )
+
+## ---- Symmetric class weights on final fit set ----
+fit_tab <- table(y_fit)
+cw_vals <- as.numeric(sum(fit_tab) / (2 * fit_tab))
+class_weights <- setNames(as.list(cw_vals), c("0", "1"))
+
+print(fit_tab)
+print(class_weights)
 
 ## ---- Residual block ----
 residual_block_1d <- function(x, filters, kernel_size, dropout_rate = 0) {
@@ -79,7 +83,8 @@ build_resnet_model <- function(input_length,
                                filters2,
                                kernel_size,
                                dropout_rate,
-                               dense_units) {
+                               dense_units,
+                               learning_rate) {
   
   inputs <- layer_input(shape = c(input_length, 1))
   
@@ -92,14 +97,30 @@ build_resnet_model <- function(input_length,
     ) %>%
     layer_batch_normalization()
   
-  x <- residual_block_1d(x, filters = filters1, kernel_size = kernel_size, dropout_rate = dropout_rate)
-  x <- residual_block_1d(x, filters = filters1, kernel_size = kernel_size, dropout_rate = dropout_rate)
+  x <- residual_block_1d(
+    x, filters = filters1,
+    kernel_size = kernel_size,
+    dropout_rate = dropout_rate
+  )
+  x <- residual_block_1d(
+    x, filters = filters1,
+    kernel_size = kernel_size,
+    dropout_rate = dropout_rate
+  )
   
   x <- x %>%
     layer_max_pooling_1d(pool_size = 2)
   
-  x <- residual_block_1d(x, filters = filters2, kernel_size = kernel_size, dropout_rate = dropout_rate)
-  x <- residual_block_1d(x, filters = filters2, kernel_size = kernel_size, dropout_rate = dropout_rate)
+  x <- residual_block_1d(
+    x, filters = filters2,
+    kernel_size = kernel_size,
+    dropout_rate = dropout_rate
+  )
+  x <- residual_block_1d(
+    x, filters = filters2,
+    kernel_size = kernel_size,
+    dropout_rate = dropout_rate
+  )
   
   x <- x %>%
     layer_global_average_pooling_1d() %>%
@@ -110,11 +131,11 @@ build_resnet_model <- function(input_length,
   model <- keras_model(inputs = inputs, outputs = x)
   
   model %>% compile(
-    optimizer = optimizer_adam(learning_rate = 1e-4),
-    loss = "binary_crossentropy",
+    optimizer = optimizer_adam(learning_rate = learning_rate),
+    loss = "categorical_crossentropy",
     metrics = list(
       metric_auc(name = "auc"),
-      metric_binary_accuracy(name = "accuracy")
+      metric_categorical_accuracy(name = "accuracy")
     )
   )
   
@@ -122,7 +143,7 @@ build_resnet_model <- function(input_length,
 }
 
 ## ---- Create model ----
-input_length <- dim(x_train)[2]
+input_length <- dim(x_fit)[2]
 
 set_random_seed(15)
 
@@ -132,20 +153,19 @@ resnet_model <- build_resnet_model(
   filters2 = best_param_resnet$filters2,
   kernel_size = best_param_resnet$kernel_size,
   dropout_rate = best_param_resnet$dropout_rate,
-  dense_units = best_param_resnet$dense_units
+  dense_units = best_param_resnet$dense_units,
+  learning_rate = best_param_resnet$learning_rate
 )
 
 summary(resnet_model)
 
-## ---- Train final model ----
+## ---- Final fit ----
 resnet_history <- resnet_model %>% fit(
-  x = x_train,
-  y = dummy_y_train,
+  x = x_fit,
+  y = dummy_y_fit,
   batch_size = best_param_resnet$batch_size,
-  epochs = 200,
-  validation_data = list(x_validate, dummy_y_val),
+  epochs = best_param_resnet$best_epoch,
   class_weight = class_weights,
-  callbacks = callbacks,
   verbose = 1
 )
 
@@ -165,7 +185,7 @@ species_pred <- factor(
 )
 
 true_labels <- factor(
-  ifelse(dummy_y_test[, 1] == 1, "Alewife", "Rainbow Smelt"),
+  y_test,
   levels = c("Alewife", "Rainbow Smelt")
 )
 
@@ -204,16 +224,13 @@ metrics_tbl_resnet <- tibble(
 print(metrics_tbl_resnet)
 
 ## ---- Training history table ----
-lr_history <- rep(1e-4, length(resnet_history$metrics$loss))
+lr_history <- rep(best_param_resnet$learning_rate, length(resnet_history$metrics$loss))
 
 history_df_resnet <- tibble(
   epoch = seq_along(resnet_history$metrics$loss),
   loss = resnet_history$metrics$loss,
-  val_loss = resnet_history$metrics$val_loss,
   auc = resnet_history$metrics$auc,
-  val_auc = resnet_history$metrics$val_auc,
   accuracy = resnet_history$metrics$accuracy,
-  val_accuracy = resnet_history$metrics$val_accuracy,
   learning_rate = lr_history
 )
 
@@ -228,21 +245,23 @@ history_long_resnet <- history_df_resnet %>%
   ) %>%
   mutate(
     panel = case_when(
-      metric %in% c("loss", "val_loss") ~ "Loss",
-      metric %in% c("auc", "val_auc") ~ "AUC",
-      metric %in% c("accuracy", "val_accuracy") ~ "Accuracy",
+      metric == "loss" ~ "Loss",
+      metric == "auc" ~ "AUC",
+      metric == "accuracy" ~ "Accuracy",
       metric == "learning_rate" ~ "Learning Rate"
     )
   )
 
-training_history_plot_resnet <- ggplot(history_long_resnet,
-                                       aes(x = epoch, y = value, color = metric)) +
+training_history_plot_resnet <- ggplot(
+  history_long_resnet,
+  aes(x = epoch, y = value, color = metric)
+) +
   geom_line(linewidth = 0.8) +
   geom_point(size = 1.2) +
   facet_wrap(~ panel, scales = "free_y", ncol = 1) +
   theme_bw() +
   labs(
-    title = "ResNet Training History",
+    title = "Final ResNet Training History",
     x = "Epoch",
     y = NULL,
     color = "Metric"

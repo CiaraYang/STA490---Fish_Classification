@@ -1,16 +1,15 @@
 # =========================================================
 # 02_tune_resnet.R
 # Hyperparameter tuning for 1D ResNet
-# Uses the same processed data as the CNN
 # =========================================================
 
-library(dplyr)
-library(tensorflow)
-library(keras3)
-library(caret)
+# library(dplyr)
+# library(tensorflow)
+# # library(keras3)
+# library(caret)
 
 ## ---- Load prepared data ----
-load("Data/fish_cnn_data.RData")
+load("Resnet/fish_model_data_070_Resnet.RData")
 
 cat("x_train shape:", dim(x_train), "\n")
 cat("x_validate shape:", dim(x_validate), "\n")
@@ -20,16 +19,30 @@ print(table(y_validate))
 print(table(y_test))
 
 ## ---- Class weights ----
+# train_tab <- table(y_train)
+# cw <- as.numeric(train_tab[1] / train_tab[2])
+# class_weights <- list("0" = 1, "1" = cw)
+
 train_tab <- table(y_train)
-cw <- as.numeric(train_tab[1] / train_tab[2])
-class_weights <- list("0" = 1, "1" = cw)
+cw_vals <- as.numeric(sum(train_tab) / (2 * train_tab))
+class_weights <- setNames(as.list(cw_vals), c("0", "1"))
 
 ## ---- Early stopping ----
+# callbacks <- list(
+#   callback_early_stopping(
+#     monitor = "val_loss",
+#     min_delta = 1e-3,
+#     patience = 30,
+#     restore_best_weights = TRUE
+#   )
+# )
+
 callbacks <- list(
   callback_early_stopping(
-    monitor = "val_loss",
+    monitor = "val_auc",
+    mode = "max",
     min_delta = 1e-3,
-    patience = 30,
+    patience = 12,
     restore_best_weights = TRUE
   )
 )
@@ -81,7 +94,8 @@ build_resnet_model <- function(input_length,
                                filters2,
                                kernel_size,
                                dropout_rate,
-                               dense_units) {
+                               dense_units,
+                               learning_rate) {
   
   inputs <- layer_input(shape = c(input_length, 1))
   
@@ -103,6 +117,8 @@ build_resnet_model <- function(input_length,
   x <- residual_block_1d(x, filters = filters2, kernel_size = kernel_size, dropout_rate = dropout_rate)
   x <- residual_block_1d(x, filters = filters2, kernel_size = kernel_size, dropout_rate = dropout_rate)
   
+  # oftmax makes all class probabilities add to 1, and categorical 
+  # crossentropy measures how well the model puts probability mass on the correct class.
   x <- x %>%
     layer_global_average_pooling_1d() %>%
     layer_dense(units = dense_units, activation = "relu") %>%
@@ -112,8 +128,8 @@ build_resnet_model <- function(input_length,
   model <- keras_model(inputs = inputs, outputs = x)
   
   model %>% compile(
-    optimizer = optimizer_adam(learning_rate = 1e-4),
-    loss = "binary_crossentropy",
+    optimizer = optimizer_adam(learning_rate = learning_rate),
+    loss = "categorical_crossentropy",
     metrics = list(
       metric_auc(name = "auc"),
       metric_binary_accuracy(name = "accuracy")
@@ -123,13 +139,16 @@ build_resnet_model <- function(input_length,
   model
 }
 
+
 ## ---- Hyperparameter grid ----
-filters1 <- c(16, 32, 64)
-filters2 <- c(32, 64, 128)
-kernel_size <- c(3, 5, 7)
-dropout_rate <- c(0, 0.1, 0.2)
+# make the model search a bit simpler and more targeted.
+filters1 <- c(8, 16, 32)
+filters2 <- c(16, 32, 64)
+kernel_size <- c(3, 5, 9)
+dropout_rate <- c(0.1, 0.2, 0.3)
 dense_units <- c(16, 32, 64)
-batch_size <- c(32, 64, 128)
+batch_size <- c(64, 128)
+learning_rate <- c(1e-3, 3e-4, 1e-4)
 
 grid.search.full <- expand.grid(
   filters1 = filters1,
@@ -137,11 +156,12 @@ grid.search.full <- expand.grid(
   kernel_size = kernel_size,
   dropout_rate = dropout_rate,
   dense_units = dense_units,
-  batch_size = batch_size
+  batch_size = batch_size,
+  learning_rate = learning_rate
 )
 
 set.seed(15)
-n_subset <- 20
+n_subset <- 30
 grid.search.subset <- grid.search.full[
   sample(1:nrow(grid.search.full), n_subset, replace = FALSE),
 ]
@@ -165,14 +185,15 @@ for (i in 1:n_subset) {
     filters2 = grid.search.subset$filters2[i],
     kernel_size = grid.search.subset$kernel_size[i],
     dropout_rate = grid.search.subset$dropout_rate[i],
-    dense_units = grid.search.subset$dense_units[i]
+    dense_units = grid.search.subset$dense_units[i],
+    learning_rate = grid.search.subset$learning_rate[i]
   )
   
   history <- resnet_model %>% fit(
     x = x_train,
     y = dummy_y_train,
     batch_size = grid.search.subset$batch_size[i],
-    epochs = 200,
+    epochs = 100,
     validation_data = list(x_validate, dummy_y_val),
     class_weight = class_weights,
     callbacks = callbacks,
@@ -180,7 +201,7 @@ for (i in 1:n_subset) {
   )
   
   val_loss[i] <- min(history$metrics$val_loss)
-  best_epoch_loss[i] <- which.min(history$metrics$val_loss)
+  best_epoch_loss[i] <- which.max(history$metrics$val_auc)
   val_auc[i] <- max(history$metrics$val_auc)
   val_accuracy[i] <- max(history$metrics$val_accuracy)
 }
@@ -193,7 +214,7 @@ tuning_results_resnet <- grid.search.subset %>%
     val_auc = val_auc,
     val_accuracy = val_accuracy
   ) %>%
-  arrange(val_loss, desc(val_auc))
+  arrange(desc(val_auc), val_loss)
 
 print(tuning_results_resnet)
 
@@ -203,6 +224,6 @@ best_param_resnet <- tuning_results_resnet[best_row, ]
 cat("\nBest ResNet parameters:\n")
 print(best_param_resnet)
 
-write.csv(tuning_results_resnet, "Data/resnet_tuning_results.csv", row.names = FALSE)
+write.csv(tuning_results_resnet, "Resnet/resnet_tuning_results.csv", row.names = FALSE)
 save(tuning_results_resnet, best_param_resnet,
-     file = "Data/resnet_tuning_results.RData")
+     file = "Resnet/resnet_tuning_results.RData")
