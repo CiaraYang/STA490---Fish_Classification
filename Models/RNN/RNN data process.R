@@ -15,7 +15,7 @@ options(stringsAsFactors = FALSE)
 # -------------------------
 # Load merged data
 # -------------------------
-full_data <- readRDS("~/Documents/School/STA490/Fish/full_data_merged.rds")
+full_data <- readRDS("Data//full_data_merged.rds")
 
 # provisional track id
 full_data <- full_data %>%
@@ -121,16 +121,16 @@ data_keep <- full_data %>%
   filter(kHz == "070") %>%
   left_join(tracks_keep %>% select(Region_name, Year, Month, Location, kHz, species)) %>%
   mutate(variable = paste0("F", variable)) %>%
-  pivot_wider(id_cols = c("Ping_index","Region_name","Year","Month","kHz","Location","species"),
+  pivot_wider(id_cols = c("track_id","Ping_index","Region_name","Year","Month","kHz","Location","species"),
               names_from = "variable", values_from = "value")
 
 # -------------------------
 # Add Fish Length
 # -------------------------
 
-# Step 1: Calculate mean TS across all frequency columns (cols 8-98), ignoring NAs
+# Step 1: Calculate mean TS across all frequency columns (cols 9-99), ignoring NAs
 data_keep <- data_keep %>%
-  mutate(TS_mean = rowMeans(select(., 8:98), na.rm = TRUE))
+  mutate(TS_mean = rowMeans(select(., 9:99), na.rm = TRUE))
 
 # Step 2: Calculate fish length from TS_mean
 data_keep <- data_keep %>%
@@ -172,14 +172,24 @@ feature_cols <- c(grep("^F", names(data_normalized), value = TRUE), "fish_length
 
 # -------------------------
 # Train / validation / test split
+# Split unique tracks first, then assign all pings from those tracks
 # -------------------------
-train_index <- createDataPartition(data_normalized$species, p = 0.7, list = FALSE)
-train_df <- data_normalized[train_index, ]
-temp_df  <- data_normalized[-train_index, ]
+track_df <- data_normalized %>%
+  distinct(track_id, species)
 
-val_index <- createDataPartition(temp_df$species, p = 0.5, list = FALSE)
-validate_df <- temp_df[val_index, ]
-test_df     <- temp_df[-val_index, ]
+train_index <- createDataPartition(track_df$species, p = 0.7, list = FALSE)
+train_tracks <- track_df$track_id[train_index]
+
+temp_track_df <- track_df[-train_index, ]
+val_index <- createDataPartition(temp_track_df$species, p = 0.5, list = FALSE)
+
+validate_tracks <- temp_track_df$track_id[val_index]
+test_tracks <- temp_track_df$track_id[-val_index]
+
+# Then assign all pings from those tracks
+train_df <- data_normalized %>% filter(track_id %in% train_tracks)
+validate_df <- data_normalized %>% filter(track_id %in% validate_tracks)
+test_df <- data_normalized %>% filter(track_id %in% test_tracks)
 
 # -------------------------
 # Build feature matrices
@@ -221,7 +231,7 @@ dummy_y_val   <- to_categorical(as.integer(y_validate) - 1, num_classes = 2)
 dummy_y_test  <- to_categorical(as.integer(y_test)     - 1, num_classes = 2)
 
 # -------------------------
-# Save — shared by both CNN and RNN pipelines
+# Save
 # -------------------------
 save(
   x_train, x_validate, x_test,
@@ -230,5 +240,6 @@ save(
   train_df, validate_df, test_df,
   train_means, train_sds,
   feature_cols,
-  file = "~/Documents/School/STA490/Fish/RNN/fish_rnn_data.RData"
+  file = "Data/rnn_data.RData"
 )
+
