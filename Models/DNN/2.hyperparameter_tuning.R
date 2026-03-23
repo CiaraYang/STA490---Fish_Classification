@@ -1,22 +1,17 @@
-# load packages
 library(keras3)
 library(tensorflow)
 
-# set seed
 set_random_seed(15)
 
-# input dimension
-input_dim <- ncol(x_train_dnn)
+input_dim <- ncol(x_train)
 
-# class weights for imbalanced data
 class_counts <- table(y_train)
 
 class_weight <- list(
-  "0" = as.numeric(sum(class_counts) / (2 * class_counts["Alewife"])),
-  "1" = as.numeric(sum(class_counts) / (2 * class_counts["Rainbow Smelt"]))
+  "0" = as.numeric(sum(class_counts) / (2 * class_counts["0"])),
+  "1" = as.numeric(sum(class_counts) / (2 * class_counts["1"]))
 )
 
-# build DNN model
 build_dnn_model <- function(input_dim,
                             hidden1 = 128,
                             hidden2 = 64,
@@ -40,36 +35,32 @@ build_dnn_model <- function(input_dim,
     layer_batch_normalization() |>
     layer_activation("relu") |>
     layer_dropout(rate = dropout) |>
-    layer_dense(units = 2, activation = "softmax")
+    layer_dense(units = 1, activation = "sigmoid")
   
   model |>
     compile(
       optimizer = optimizer_adam(learning_rate = lr),
-      loss = "categorical_crossentropy",
+      loss = "binary_crossentropy",
       metrics = c("accuracy", metric_auc(name = "auc"))
     )
 }
 
-# define hyperparameter grid
 grid_full <- expand.grid(
-  hidden1 = c(64, 128, 256),
-  hidden2 = c(32, 64, 128),
-  dropout = c(0.2, 0.3, 0.4),
-  l2 = c(0.0001, 0.001),
+  hidden1 = c(32, 64, 128),
+  hidden2 = c(16, 32, 64),
+  dropout = c(0.3, 0.4, 0.5),
+  l2 = c(0.001, 0.005),
   lr = c(0.001, 0.0005),
-  batch_size = c(32, 64, 128),
+  batch_size = c(32, 64),
   stringsAsFactors = FALSE
 )
 
-# total number of combinations
 nrow(grid_full)
 
-# randomly sample tuning combinations
 set.seed(15)
 n_try <- 20
 grid_sub <- grid_full[sample(nrow(grid_full), n_try, replace = FALSE), ]
 
-# define callbacks
 make_callbacks <- function() {
   list(
     callback_early_stopping(
@@ -86,10 +77,8 @@ make_callbacks <- function() {
   )
 }
 
-# store tuning results
 tuning_results <- data.frame()
 
-# run hyperparameter tuning
 for (i in seq_len(nrow(grid_sub))) {
   
   cat("run", i, "of", nrow(grid_sub), "\n")
@@ -105,9 +94,9 @@ for (i in seq_len(nrow(grid_sub))) {
   
   history <- model |>
     fit(
-      x = x_train_dnn,
-      y = dummy_y_train,
-      validation_data = list(x_validate_dnn, dummy_y_val),
+      x = x_train,
+      y = y_train,
+      validation_data = list(x_validate, y_validate),
       epochs = 60,
       batch_size = grid_sub$batch_size[i],
       callbacks = make_callbacks(),
@@ -141,11 +130,9 @@ for (i in seq_len(nrow(grid_sub))) {
   )
 }
 
-# rank models
 tuning_results <- tuning_results[
   order(-tuning_results$best_val_auc,
         tuning_results$best_val_loss),
 ]
 
-# show top results
 head(tuning_results, 10)
