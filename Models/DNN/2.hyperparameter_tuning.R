@@ -65,13 +65,13 @@ make_callbacks <- function() {
   list(
     callback_early_stopping(
       monitor = "val_loss",
-      patience = 8,
+      patience = 30,
       restore_best_weights = TRUE
     ),
     callback_reduce_lr_on_plateau(
       monitor = "val_loss",
       factor = 0.5,
-      patience = 4,
+      patience = 30,
       min_lr = 1e-5
     )
   )
@@ -97,7 +97,7 @@ for (i in seq_len(nrow(grid_sub))) {
       x = x_train,
       y = y_train,
       validation_data = list(x_validate, y_validate),
-      epochs = 60,
+      epochs = 200,
       batch_size = grid_sub$batch_size[i],
       callbacks = make_callbacks(),
       class_weight = class_weight,
