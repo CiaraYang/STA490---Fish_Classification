@@ -7,13 +7,27 @@ library(tibble)
 
 set_random_seed(15)
 
+# load processed data from Data/
+x_train <- readRDS("Data/x_train.rds")
+x_validate <- readRDS("Data/x_validate.rds")
+x_test <- readRDS("Data/x_test.rds")
+
+y_train <- readRDS("Data/y_train.rds")
+y_validate <- readRDS("Data/y_validate.rds")
+y_test <- readRDS("Data/y_test.rds")
+
+# convert CNN arrays to DNN matrices
+x_train <- matrix(x_train[, , 1], nrow = dim(x_train)[1], ncol = dim(x_train)[2])
+x_validate <- matrix(x_validate[, , 1], nrow = dim(x_validate)[1], ncol = dim(x_validate)[2])
+x_test <- matrix(x_test[, , 1], nrow = dim(x_test)[1], ncol = dim(x_test)[2])
+
 # select best hyperparameters from tuning
 best_param <- tuning_results[1, ]
 
 # input feature dimension
 input_dim <- ncol(x_train)
 
-# compute class weights to handle imbalance
+# compute class weights
 train_tab <- table(y_train)
 class_weights <- list()
 class_weights[["0"]] <- as.numeric(sum(train_tab) / (2 * train_tab["0"]))
@@ -38,7 +52,7 @@ final_model <- keras_model_sequential() |>
   layer_dropout(rate = best_param$dropout) |>
   layer_dense(units = 1, activation = "sigmoid")
 
-# compile model with binary classification setup
+# compile model
 final_model |>
   compile(
     optimizer = optimizer_adam(learning_rate = best_param$lr),
@@ -46,11 +60,12 @@ final_model |>
     metrics = c("accuracy", metric_auc(name = "auc"))
   )
 
-# callbacks for early stopping and learning rate reduction
+# callbacks
 final_callbacks <- list(
   callback_early_stopping(
     monitor = "val_auc",
     mode = "max",
+    min_delta = 0.002,
     patience = 30,
     restore_best_weights = TRUE
   ),
@@ -88,19 +103,19 @@ pred_probs <- final_model |>
 # extract probability of Rainbow Smelt
 prob_smelt <- as.numeric(pred_probs)
 
-# convert probabilities to predicted class using threshold 0.5
+# convert probabilities to predicted class
 species_pred <- factor(
   ifelse(prob_smelt >= 0.5, "Rainbow Smelt", "Alewife"),
   levels = c("Alewife", "Rainbow Smelt")
 )
 
-# create true labels in same format
+# create true labels
 true_labels <- factor(
   ifelse(y_test == 1, "Rainbow Smelt", "Alewife"),
   levels = c("Alewife", "Rainbow Smelt")
 )
 
-# confusion matrix for classification performance
+# confusion matrix
 cm <- confusionMatrix(
   data = species_pred,
   reference = true_labels,
@@ -108,7 +123,7 @@ cm <- confusionMatrix(
 )
 print(cm)
 
-# compute ROC curve and AUC
+# ROC and AUC
 roc_obj <- roc(
   response = true_labels,
   predictor = prob_smelt,

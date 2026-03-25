@@ -3,8 +3,24 @@ library(tensorflow)
 
 set_random_seed(15)
 
+# load processed data from Data/
+x_train <- readRDS("Data/x_train.rds")
+x_validate <- readRDS("Data/x_validate.rds")
+x_test <- readRDS("Data/x_test.rds")
+
+y_train <- readRDS("Data/y_train.rds")
+y_validate <- readRDS("Data/y_validate.rds")
+y_test <- readRDS("Data/y_test.rds")
+
+# convert CNN arrays to DNN matrices
+x_train <- matrix(x_train[, , 1], nrow = dim(x_train)[1], ncol = dim(x_train)[2])
+x_validate <- matrix(x_validate[, , 1], nrow = dim(x_validate)[1], ncol = dim(x_validate)[2])
+x_test <- matrix(x_test[, , 1], nrow = dim(x_test)[1], ncol = dim(x_test)[2])
+
+# input dimension
 input_dim <- ncol(x_train)
 
+# class weights
 class_counts <- table(y_train)
 
 class_weight <- list(
@@ -12,6 +28,7 @@ class_weight <- list(
   "1" = as.numeric(sum(class_counts) / (2 * class_counts["1"]))
 )
 
+# build DNN model
 build_dnn_model <- function(input_dim,
                             hidden1 = 128,
                             hidden2 = 64,
@@ -22,7 +39,7 @@ build_dnn_model <- function(input_dim,
   model <- keras_model_sequential() |>
     layer_dense(
       units = hidden1,
-      input_shape = input_dim,
+      input_shape = c(input_dim),
       kernel_regularizer = regularizer_l2(l2_lambda)
     ) |>
     layer_batch_normalization() |>
@@ -45,6 +62,7 @@ build_dnn_model <- function(input_dim,
     )
 }
 
+# hyperparameter grid
 grid_full <- expand.grid(
   hidden1 = c(32, 64, 128),
   hidden2 = c(16, 32, 64),
@@ -55,28 +73,31 @@ grid_full <- expand.grid(
   stringsAsFactors = FALSE
 )
 
-nrow(grid_full)
-
 set.seed(15)
 n_try <- 20
 grid_sub <- grid_full[sample(nrow(grid_full), n_try, replace = FALSE), ]
 
+# callbacks
 make_callbacks <- function() {
   list(
     callback_early_stopping(
-      monitor = "val_loss",
+      monitor = "val_auc",
+      mode = "max",
+      min_delta = 0.002,
       patience = 30,
       restore_best_weights = TRUE
     ),
     callback_reduce_lr_on_plateau(
-      monitor = "val_loss",
+      monitor = "val_auc",
+      mode = "max",
       factor = 0.5,
-      patience = 30,
+      patience = 5,
       min_lr = 1e-5
     )
   )
 }
 
+# store tuning results
 tuning_results <- data.frame()
 
 for (i in seq_len(nrow(grid_sub))) {
@@ -97,7 +118,7 @@ for (i in seq_len(nrow(grid_sub))) {
       x = x_train,
       y = y_train,
       validation_data = list(x_validate, y_validate),
-      epochs = 200,
+      epochs = 100,
       batch_size = grid_sub$batch_size[i],
       callbacks = make_callbacks(),
       class_weight = class_weight,
@@ -110,7 +131,7 @@ for (i in seq_len(nrow(grid_sub))) {
   
   if (length(val_loss_vec) == 0) next
   
-  best_epoch <- which.min(val_loss_vec)
+  best_epoch <- which.max(val_auc_vec)
   
   tuning_results <- rbind(
     tuning_results,
