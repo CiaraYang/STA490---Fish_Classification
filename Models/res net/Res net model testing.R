@@ -6,33 +6,40 @@
 library(dplyr)
 library(tensorflow)
 library(caret)
-library(keras3)
+# library(keras3)
 library(pROC)
 library(tibble)
 library(tidyr)
 library(ggplot2)
-# install.packages(abind)
+install.packages("abind")
 library(abind)
 
 ## ---- Load data ----
-load("Resnet/fish_model_data_070_Resnet.Rdata")
-load("Resnet/resnet_tuning_results.RData")
+x_train <- readRDS("Data/x_train.rds")
+x_validate <- readRDS("Data/x_validate.rds")
+x_test <- readRDS("Data/x_test.rds")
+
+y_train <- readRDS("Data/y_train.rds")
+y_validate <- readRDS("Data/y_validate.rds")
+y_test <- readRDS("Data/y_test.rds")
+
+dummy_y_train <- readRDS("Data/dummy_y_train.rds")
+dummy_y_val <- readRDS("Data/dummy_y_val.rds")
+dummy_y_test <- readRDS("Data/dummy_y_test.rds")
+
+load("Data/resnet_tuning_results.RData")
 
 print(best_param_resnet)
 
 ## ---- Combine train + validation for final fitting ----
 x_fit <- abind(x_train, x_validate, along = 1)
 dummy_y_fit <- rbind(dummy_y_train, dummy_y_val)
-
-y_fit <- factor(
-  c(as.character(y_train), as.character(y_validate)),
-  levels = c("Alewife", "Rainbow Smelt")
-)
+y_fit <- c(y_train, y_validate)
 
 ## ---- Symmetric class weights on final fit set ----
 fit_tab <- table(y_fit)
 cw_vals <- as.numeric(sum(fit_tab) / (2 * fit_tab))
-class_weights <- setNames(as.list(cw_vals), c("0", "1"))
+class_weights <- setNames(as.list(cw_vals), names(fit_tab))
 
 print(fit_tab)
 print(class_weights)
@@ -185,7 +192,7 @@ species_pred <- factor(
 )
 
 true_labels <- factor(
-  y_test,
+  ifelse(y_test == 0, "Alewife", "Rainbow Smelt"),
   levels = c("Alewife", "Rainbow Smelt")
 )
 

@@ -3,13 +3,26 @@
 # Hyperparameter tuning for 1D ResNet
 # =========================================================
 
-# library(dplyr)
-# library(tensorflow)
-# # library(keras3)
-# library(caret)
+library(dplyr)
+library(tensorflow)
+# library(keras3)
+library(caret)
 
-## ---- Load prepared data ----
-load("Resnet/fish_model_data_070_Resnet.RData")
+set.seed(15)
+options(stringsAsFactors = FALSE)
+
+## ---- Load prepared data from updated data_process.R ----
+x_train <- readRDS("Data/x_train.rds")
+x_validate <- readRDS("Data/x_validate.rds")
+x_test <- readRDS("Data/x_test.rds")
+
+y_train <- readRDS("Data/y_train.rds")
+y_validate <- readRDS("Data/y_validate.rds")
+y_test <- readRDS("Data/y_test.rds")
+
+dummy_y_train <- readRDS("Data/dummy_y_train.rds")
+dummy_y_val <- readRDS("Data/dummy_y_val.rds")
+dummy_y_test <- readRDS("Data/dummy_y_test.rds")
 
 cat("x_train shape:", dim(x_train), "\n")
 cat("x_validate shape:", dim(x_validate), "\n")
@@ -23,9 +36,13 @@ print(table(y_test))
 # cw <- as.numeric(train_tab[1] / train_tab[2])
 # class_weights <- list("0" = 1, "1" = cw)
 
+# train_tab <- table(y_train)
+# cw_vals <- as.numeric(sum(train_tab) / (2 * train_tab))
+# class_weights <- setNames(as.list(cw_vals), c("0", "1"))
+
 train_tab <- table(y_train)
 cw_vals <- as.numeric(sum(train_tab) / (2 * train_tab))
-class_weights <- setNames(as.list(cw_vals), c("0", "1"))
+class_weights <- setNames(as.list(cw_vals), names(train_tab))
 
 ## ---- Early stopping ----
 # callbacks <- list(
@@ -49,7 +66,6 @@ callbacks <- list(
 
 ## ---- Residual block ----
 residual_block_1d <- function(x, filters, kernel_size, dropout_rate = 0) {
-  
   shortcut <- x
   
   out <- x %>%
@@ -69,7 +85,6 @@ residual_block_1d <- function(x, filters, kernel_size, dropout_rate = 0) {
     ) %>%
     layer_batch_normalization()
   
-  # match dimensions if needed
   input_channels <- x$shape[[3]]
   if (!is.null(input_channels) && input_channels != filters) {
     shortcut <- shortcut %>%
@@ -132,7 +147,7 @@ build_resnet_model <- function(input_length,
     loss = "categorical_crossentropy",
     metrics = list(
       metric_auc(name = "auc"),
-      metric_binary_accuracy(name = "accuracy")
+      metric_categorical_accuracy(name = "accuracy")
     )
   )
   
@@ -166,10 +181,12 @@ grid.search.subset <- grid.search.full[
   sample(1:nrow(grid.search.full), n_subset, replace = FALSE),
 ]
 
-val_loss <- rep(NA, n_subset)
-best_epoch_loss <- rep(NA, n_subset)
-val_auc <- rep(NA, n_subset)
-val_accuracy <- rep(NA, n_subset)
+val_loss <- rep(NA_real_, n_subset)
+best_epoch_auc <- rep(NA_integer_, n_subset)
+val_auc <- rep(NA_real_, n_subset)
+val_accuracy <- rep(NA_real_, n_subset)
+val_loss_at_best_auc <- rep(NA_real_, n_subset)
+val_accuracy_at_best_auc <- rep(NA_real_, n_subset)
 
 input_length <- dim(x_train)[2]
 
@@ -200,30 +217,36 @@ for (i in 1:n_subset) {
     verbose = 0
   )
   
-  val_loss[i] <- min(history$metrics$val_loss)
-  best_epoch_loss[i] <- which.max(history$metrics$val_auc)
-  val_auc[i] <- max(history$metrics$val_auc)
-  val_accuracy[i] <- max(history$metrics$val_accuracy)
+  auc_hist <- history$metrics$val_auc
+  loss_hist <- history$metrics$val_loss
+  acc_hist <- history$metrics$val_accuracy
+  
+  best_epoch_auc[i] <- which.max(auc_hist)
+  val_auc[i] <- auc_hist[best_epoch_auc[i]]
+  val_loss_at_best_auc[i] <- loss_hist[best_epoch_auc[i]]
+  val_accuracy_at_best_auc[i] <- acc_hist[best_epoch_auc[i]]
+  val_loss[i] <- min(loss_hist)
 }
 
-## ---- Collect results ----
+  ## ---- Collect results ----
 tuning_results_resnet <- grid.search.subset %>%
   mutate(
-    val_loss = val_loss,
-    best_epoch = best_epoch_loss,
+    best_epoch = best_epoch_auc,
     val_auc = val_auc,
-    val_accuracy = val_accuracy
+    val_loss_at_best_auc = val_loss_at_best_auc,
+    val_accuracy = val_accuracy_at_best_auc,
+    val_loss_min = val_loss
   ) %>%
-  arrange(desc(val_auc), val_loss)
+  arrange(desc(val_auc), val_loss_at_best_auc)
 
 print(tuning_results_resnet)
 
-best_row <- which.min(tuning_results_resnet$val_loss)
-best_param_resnet <- tuning_results_resnet[best_row, ]
+best_param_resnet <- tuning_results_resnet[1, ]
 
 cat("\nBest ResNet parameters:\n")
 print(best_param_resnet)
 
 write.csv(tuning_results_resnet, "Resnet/resnet_tuning_results.csv", row.names = FALSE)
-save(tuning_results_resnet, best_param_resnet,
-     file = "Resnet/resnet_tuning_results.RData")
+save(tuning_results_resnet, 
+     best_param_resnet,
+     file = "Data/resnet_tuning_results.RData")
