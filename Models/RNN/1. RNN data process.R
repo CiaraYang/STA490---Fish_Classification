@@ -392,16 +392,17 @@ print(cbind(
 # -------------------------
 # Save
 # -------------------------
-save(
-  x_train, x_validate, x_test,
-  dummy_y_train, dummy_y_val, dummy_y_test,
-  y_train, y_validate, y_test,
-  train_df_ping, validate_df_ping, test_df_ping,
-  train_seq_info, validate_seq_info, test_seq_info,
-  freq_cols,
-  signal_means, signal_sds,
-  file = "Data/fish_model_data_rnn_70k_5ping.RData"
-)
+saveRDS(x_train, "Data/RNN_data/x_train.rds")
+saveRDS(x_validate, "Data/RNN_data/x_validate.rds")
+saveRDS(x_test, "Data/RNN_data/x_test.rds")
 
-cat("\nSaved to: Data/rnn_70k_5ping.RData\n")
+saveRDS(y_train, "Data/RNN_data/y_train.rds")
+saveRDS(y_validate, "Data/RNN_data/y_validate.rds")
+saveRDS(y_test, "Data/RNN_data/y_test.rds")
+
+saveRDS(dummy_y_train, "Data/RNN_data/dummy_y_train.rds")
+saveRDS(dummy_y_val, "Data/RNN_data/dummy_y_val.rds")
+saveRDS(dummy_y_test, "Data/RNN_data/dummy_y_test.rds")
+
+cat("Saved all RNN RDS files to Data/RNN_data/\n")
 
