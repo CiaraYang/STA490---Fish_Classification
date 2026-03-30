@@ -1,9 +1,10 @@
 # =========================================================
-# 01_build_model_data_ping_70k.R
+# 01_build_model_data_rnn_70k.R
 # Build model data using:
 # - raw ping-level acoustic signal (no interpolation)
-# - Month metadata
 # - 70 kHz transducer only
+# - track-level split
+# - RNN samples formed by every 5 consecutive pings within a track
 # =========================================================
 
 library(readr)
@@ -108,15 +109,12 @@ tracks_labeled <- tracks %>%
 # -------------------------
 # Track filtering
 # Keep only stable tracks and target species
-# Then focus only on 70 kHz as requested
+# Then focus only on 70 kHz
 # -------------------------
 tracks_keep <- tracks_labeled %>%
   filter(max_diff_depth < 1) %>%
   filter(species %in% c("Alewife", "Rainbow Smelt")) %>%
   filter(kHz == "070")
-
-cat("\nTracks kept (70 kHz only):\n")
-print(table(tracks_keep$species))
 
 # -------------------------
 # Build ping-level dataframe
@@ -128,14 +126,13 @@ data_keep <- full_data %>%
   filter(kHz == "070") %>%
   filter(!is.na(value)) %>%
   left_join(
-    tracks_keep %>%
-      dplyr::select("track_id", "species"),
+    tracks_keep %>% dplyr::select(track_id, species),
     by = "track_id"
   ) %>%
   mutate(variable = paste0("F", variable)) %>%
   dplyr::select(
-    "Ping_index", "track_id", "Region_name", "Year", "Month",
-    "kHz", "Location", "species", "variable", "value"
+    Ping_index, track_id, Region_name, Year, Month,
+    kHz, Location, species, variable, value
   ) %>%
   tidyr::pivot_wider(
     names_from = variable,
@@ -156,33 +153,57 @@ model_df_complete <- data_keep %>%
     Month = factor(Month)
   )
 
-cat("\nPing-level data dimensions:\n")
-print(dim(model_df_complete))
-
-cat("\nPing-level class counts:\n")
-print(table(model_df_complete$species))
+# -------------------------
+# Order pings within track
+# Then split by track first
+# -------------------------
+model_df_complete <- model_df_complete %>%
+  mutate(
+    Ping_index_num = suppressWarnings(as.numeric(as.character(Ping_index)))
+  ) %>%
+  group_by(track_id) %>%
+  arrange(
+    if (all(is.na(Ping_index_num))) row_number() else Ping_index_num,
+    .by_group = TRUE
+  ) %>%
+  mutate(ping_order = row_number()) %>%
+  ungroup()
 
 # -------------------------
-# Optional: species-based normalization
-# Marco mentioned using Mia's normalization formula.
-# Replace this section with Mia's exact formula when available.
-# For now, data are left unchanged.
+# Keep only tracks with at least 5 complete pings
 # -------------------------
+track_df <- model_df_complete %>%
+  group_by(track_id, species) %>%
+  summarise(n_complete_pings = n(), .groups = "drop") %>%
+  filter(n_complete_pings >= 5)
 
-# Example placeholder:
-# model_df_complete <- model_df_complete %>%
-#   group_by(species) %>%
-#   mutate(across(all_of(freq_cols), ~ (.-mean(., na.rm = TRUE)) / sd(., na.rm = TRUE))) %>%
-#   ungroup()
+model_df_complete <- model_df_complete %>%
+  filter(track_id %in% track_df$track_id)
+
+# -------------------------
+# Track count summary table
+# 70kHz only:
+# original -> after 1m threshold -> after removing <5 pings
+# -------------------------
+track_summary_table <- tracks_labeled %>%
+  filter(kHz == "070", species %in% c("Alewife", "Rainbow Smelt")) %>%
+  group_by(species) %>%
+  summarise(
+    n_70k_original = n_distinct(track_id),
+    n_after_1m = n_distinct(track_id[track_id %in% tracks_keep$track_id]),
+    n_after_5ping = n_distinct(track_id[track_id %in% track_df$track_id]),
+    retain_after_1m = round(n_after_1m / n_70k_original, 3),
+    retain_after_5ping = round(n_after_5ping / n_70k_original, 3),
+    .groups = "drop"
+  )
+
+cat("\nTrack summary table:\n")
+print(track_summary_table)
 
 # -------------------------
 # Train / validation / test split
 # Stratified by species at track level
-# Then assign all pings from those tracks
 # -------------------------
-track_df <- model_df_complete %>%
-  distinct(track_id, species)
-
 train_index <- createDataPartition(track_df$species, p = 0.7, list = FALSE)
 
 train_tracks <- track_df$track_id[train_index]
@@ -193,106 +214,194 @@ val_index <- createDataPartition(temp_track_df$species, p = 0.5, list = FALSE)
 validate_tracks <- temp_track_df$track_id[val_index]
 test_tracks <- temp_track_df$track_id[-val_index]
 
-train_df <- model_df_complete %>%
+train_df_ping <- model_df_complete %>%
   filter(track_id %in% train_tracks)
 
-validate_df <- model_df_complete %>%
+validate_df_ping <- model_df_complete %>%
   filter(track_id %in% validate_tracks)
 
-test_df <- model_df_complete %>%
+test_df_ping <- model_df_complete %>%
   filter(track_id %in% test_tracks)
 
-cat("\nTrain / validation / test sizes:\n")
-print(c(
-  train = nrow(train_df),
-  validation = nrow(validate_df),
-  test = nrow(test_df)
-))
+# -------------------------
+# Table 2a: number of unique fish tracks in each split
+# -------------------------
+split_track_summary <- bind_rows(
+  train_df_ping %>%
+    distinct(track_id, species) %>%
+    mutate(split = "train"),
+  validate_df_ping %>%
+    distinct(track_id, species) %>%
+    mutate(split = "validation"),
+  test_df_ping %>%
+    distinct(track_id, species) %>%
+    mutate(split = "test")
+) %>%
+  group_by(split, species) %>%
+  summarise(
+    n_tracks = n_distinct(track_id),
+    .groups = "drop"
+  ) %>%
+  arrange(split, species)
 
-cat("\nTrain class counts:\n")
-print(table(train_df$species))
+cat("\nNumber of unique fish tracks in each split:\n")
+print(split_track_summary)
 
-cat("\nValidation class counts:\n")
-print(table(validate_df$species))
-
-cat("\nTest class counts:\n")
-print(table(test_df$species))
 
 # -------------------------
-# Feature matrices
+# Standardize signal using training pings only
 # -------------------------
-signal_train <- as.matrix(train_df[, freq_cols])
-signal_validate <- as.matrix(validate_df[, freq_cols])
-signal_test <- as.matrix(test_df[, freq_cols])
+signal_train_ping <- as.matrix(train_df_ping[, freq_cols])
+signal_validate_ping <- as.matrix(validate_df_ping[, freq_cols])
+signal_test_ping <- as.matrix(test_df_ping[, freq_cols])
 
-# standardize signal using training stats
-signal_means <- apply(signal_train, 2, mean, na.rm = TRUE)
-signal_sds <- apply(signal_train, 2, sd, na.rm = TRUE)
+signal_means <- apply(signal_train_ping, 2, mean, na.rm = TRUE)
+signal_sds <- apply(signal_train_ping, 2, sd, na.rm = TRUE)
 signal_sds[signal_sds == 0] <- 1
 
-signal_train <- scale(signal_train, center = signal_means, scale = signal_sds)
-signal_validate <- scale(signal_validate, center = signal_means, scale = signal_sds)
-signal_test <- scale(signal_test, center = signal_means, scale = signal_sds)
+train_df_ping[, freq_cols] <- scale(train_df_ping[, freq_cols], center = signal_means, scale = signal_sds)
+validate_df_ping[, freq_cols] <- scale(validate_df_ping[, freq_cols], center = signal_means, scale = signal_sds)
+test_df_ping[, freq_cols] <- scale(test_df_ping[, freq_cols], center = signal_means, scale = signal_sds)
 
 # -------------------------
-# Month metadata matrix
-# Keep this if you still want Month as extra input for DNN
+# Function: build 5-ping sequences within each track
+# Rule:
+# - keep only full groups of 5
+# - drop remainder
+# - example:
+#   6 pings  -> keep 1:5, drop 6
+#   12 pings -> keep 1:5 and 6:10, drop 11:12
 # -------------------------
-meta_formula <- ~ Month - 1
-
-meta_train <- model.matrix(meta_formula, data = train_df)
-meta_validate <- model.matrix(meta_formula, data = validate_df)
-meta_test <- model.matrix(meta_formula, data = test_df)
+build_rnn_windows <- function(df, freq_cols, window_size = 5) {
+  
+  df_seq <- df %>%
+    group_by(track_id) %>%
+    arrange(ping_order, .by_group = TRUE) %>%
+    mutate(
+      n_track_pings = n(),
+      n_full_windows = floor(n_track_pings / window_size)
+    ) %>%
+    filter(n_full_windows > 0) %>%
+    mutate(
+      keep_limit = n_full_windows * window_size,
+      ping_pos = row_number()
+    ) %>%
+    filter(ping_pos <= keep_limit) %>%
+    mutate(
+      window_id_within_track = ((ping_pos - 1) %/% window_size) + 1,
+      seq_id = paste(track_id, window_id_within_track, sep = "__")
+    ) %>%
+    ungroup()
+  
+  seq_info <- df_seq %>%
+    group_by(seq_id, track_id, species, Year, Month, Location, kHz, window_id_within_track) %>%
+    summarise(n_pings = n(), .groups = "drop") %>%
+    filter(n_pings == window_size)
+  
+  df_seq <- df_seq %>%
+    filter(seq_id %in% seq_info$seq_id) %>%
+    group_by(seq_id) %>%
+    arrange(ping_pos, .by_group = TRUE) %>%
+    mutate(step_in_window = row_number()) %>%
+    ungroup()
+  
+  seq_ids <- unique(df_seq$seq_id)
+  n_seq <- length(seq_ids)
+  n_freq <- length(freq_cols)
+  
+  x_array <- array(NA_real_, dim = c(n_seq, window_size, n_freq))
+  
+  for (i in seq_along(seq_ids)) {
+    this_seq <- df_seq %>%
+      filter(seq_id == seq_ids[i]) %>%
+      arrange(step_in_window)
+    
+    x_array[i, , ] <- as.matrix(this_seq[, freq_cols])
+  }
+  
+  y <- seq_info %>%
+    arrange(match(seq_id, seq_ids)) %>%
+    pull(species)
+  
+  y_dummy <- to_categorical(as.integer(y) - 1, 2)
+  
+  list(
+    x = x_array,
+    y = y,
+    y_dummy = y_dummy,
+    seq_info = seq_info %>% arrange(match(seq_id, seq_ids)),
+    seq_df = df_seq
+  )
+}
 
 # -------------------------
-# Combine signal + Month for DNN
+# Build RNN sequences
+# Output shape: n_samples x 5 x n_frequencies
 # -------------------------
-x_train_dnn <- cbind(signal_train, meta_train)
-x_validate_dnn <- cbind(signal_validate, meta_validate)
-x_test_dnn <- cbind(signal_test, meta_test)
+train_seq <- build_rnn_windows(train_df_ping, freq_cols, window_size = 5)
+validate_seq <- build_rnn_windows(validate_df_ping, freq_cols, window_size = 5)
+test_seq <- build_rnn_windows(test_df_ping, freq_cols, window_size = 5)
+
+x_train <- train_seq$x
+x_validate <- validate_seq$x
+x_test <- test_seq$x
+
+y_train <- train_seq$y
+y_validate <- validate_seq$y
+y_test <- test_seq$y
+
+dummy_y_train <- train_seq$y_dummy
+dummy_y_val <- validate_seq$y_dummy
+dummy_y_test <- test_seq$y_dummy
+
+train_seq_info <- train_seq$seq_info
+validate_seq_info <- validate_seq$seq_info
+test_seq_info <- test_seq$seq_info
 
 # -------------------------
-# CNN signal arrays
-# Shape: n_samples x n_frequencies x 1
+# Print summary
 # -------------------------
-x_train <- array(
-  as.numeric(signal_train),
-  dim = c(nrow(signal_train), ncol(signal_train), 1)
-)
+cat("\nNumber of RNN sequences:\n")
+print(c(
+  train = dim(x_train)[1],
+  validation = dim(x_validate)[1],
+  test = dim(x_test)[1]
+))
 
-x_validate <- array(
-  as.numeric(signal_validate),
-  dim = c(nrow(signal_validate), ncol(signal_validate), 1)
-)
+cat("\nRNN input shape (train):\n")
+print(dim(x_train))   # n_samples x 5 x n_frequencies
 
-x_test <- array(
-  as.numeric(signal_test),
-  dim = c(nrow(signal_test), ncol(signal_test), 1)
-)
+cat("\nTrain class summary:\n")
+print(cbind(
+  Count = table(y_train),
+  Proportion = round(prop.table(table(y_train)), 3)
+))
 
-# -------------------------
-# Labels
-# -------------------------
-y_train <- train_df$species
-y_validate <- validate_df$species
-y_test <- test_df$species
+cat("\nValidation class summary:\n")
+print(cbind(
+  Count = table(y_validate),
+  Proportion = round(prop.table(table(y_validate)), 3)
+))
 
-dummy_y_train <- to_categorical(as.integer(y_train) - 1, 2)
-dummy_y_val <- to_categorical(as.integer(y_validate) - 1, 2)
-dummy_y_test <- to_categorical(as.integer(y_test) - 1, 2)
+cat("\nTest class summary:\n")
+print(cbind(
+  Count = table(y_test),
+  Proportion = round(prop.table(table(y_test)), 3)
+))
 
 # -------------------------
 # Save
 # -------------------------
 save(
   x_train, x_validate, x_test,
-  x_train_dnn, x_validate_dnn, x_test_dnn,
   dummy_y_train, dummy_y_val, dummy_y_test,
   y_train, y_validate, y_test,
-  train_df, validate_df, test_df,
+  train_df_ping, validate_df_ping, test_df_ping,
+  train_seq_info, validate_seq_info, test_seq_info,
   freq_cols,
-  file = "Data/fish_model_data_ping_70k.RData"
+  signal_means, signal_sds,
+  file = "Data/fish_model_data_rnn_70k_5ping.RData"
 )
 
-cat("\nSaved to: Data/fish_model_data_ping_70k.RData\n")
+cat("\nSaved to: Data/rnn_70k_5ping.RData\n")
 
