@@ -24,7 +24,7 @@ dummy_y_test <- readRDS("Data/dummy_y_test.rds")
 
 # load top 20 configs
 top20_models <- readRDS(
-  "Models/cnn/drac/training/training_metrics_full/top20_config_by_auc.rds"
+  "Models/cnn/drac/training/training_metrics_full/top20_configs.rds"
 )
 
 # class weights
