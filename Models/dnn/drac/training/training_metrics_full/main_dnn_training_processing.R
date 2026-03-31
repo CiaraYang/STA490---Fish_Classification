@@ -43,9 +43,7 @@ nbatch = opt$batch
   t2 = Sys.time()
   t2-t1
   
-  colnames(mat_final_data) = c("val_loss", "best_epoch_loss", "val_auc", 
-                               "best_val_acc","best_val_auc",
-                               "model_id")
+  colnames(mat_final_data) = c("val_loss", "best_epoch_loss", "val_auc", "best_val_acc", "best_val_auc", "model_id")
   
   final_data = as_tibble(mat_final_data) %>% 
     mutate(model_id = as.integer(model_id)) %>% 
