@@ -4,3 +4,7 @@
 .Ruserdata
 .DS_Store
 training_output*
+
+Models/cnn/drac/training/training_metrics_full/training_metrics_b*/
+Models/cnn/drac/training/training_metrics_full/*.zip
+Models/cnn/drac/test/model_*.csv
