@@ -98,12 +98,56 @@ history <- dnn %>% fit(
   verbose = 1
 )
 
-# predict
-pred_probs <- dnn %>% predict(x_test)
+# tune threshold on validation set
+val_probs <- dnn %>% predict(x_validate, verbose = 0)
+prob_smelt_val <- as.numeric(val_probs)
+
+thresholds <- seq(0.1, 0.9, by = 0.01)
+
+threshold_results <- data.frame()
+
+for (t in thresholds) {
+  pred_val <- factor(
+    ifelse(prob_smelt_val >= t, "Rainbow Smelt", "Alewife"),
+    levels = c("Alewife", "Rainbow Smelt")
+  )
+  
+  true_val <- factor(
+    ifelse(y_validate == 1, "Rainbow Smelt", "Alewife"),
+    levels = c("Alewife", "Rainbow Smelt")
+  )
+  
+  cm_val <- confusionMatrix(
+    data = pred_val,
+    reference = true_val,
+    positive = "Rainbow Smelt"
+  )
+  
+  threshold_results <- rbind(
+    threshold_results,
+    data.frame(
+      threshold = t,
+      sensitivity = as.numeric(cm_val$byClass["Sensitivity"]),
+      specificity = as.numeric(cm_val$byClass["Specificity"]),
+      balanced_accuracy = as.numeric(cm_val$byClass["Balanced Accuracy"])
+    )
+  )
+}
+
+print(threshold_results)
+
+best_threshold <- threshold_results$threshold[
+  which.max(threshold_results$balanced_accuracy)
+]
+
+cat("Best threshold:", best_threshold, "\n")
+
+# predict on test set
+pred_probs <- dnn %>% predict(x_test, verbose = 0)
 prob_smelt <- as.numeric(pred_probs)
 
 species_pred <- factor(
-  ifelse(prob_smelt >= 0.5, "Rainbow Smelt", "Alewife"),
+  ifelse(prob_smelt >= best_threshold, "Rainbow Smelt", "Alewife"),
   levels = c("Alewife", "Rainbow Smelt")
 )
 

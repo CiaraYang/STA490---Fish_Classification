@@ -1,4 +1,3 @@
-# local version
 library(dplyr)
 library(tensorflow)
 library(caret)
@@ -134,10 +133,9 @@ eval <- cnn %>% evaluate(
 pred_probs <- cnn %>% predict(x_test, verbose = 0)
 
 prob_smelt <- pred_probs[, 2]
-pred_class_idx <- apply(pred_probs, 1, which.max)
 
 species_pred <- factor(
-  ifelse(pred_class_idx == 1, "Alewife", "Rainbow Smelt"),
+  ifelse(prob_smelt >= best_param$best_threshold, "Rainbow Smelt", "Alewife"),
   levels = c("Alewife", "Rainbow Smelt")
 )
 
@@ -176,6 +174,7 @@ best_result <- tibble(
   precision = as.numeric(cm$byClass["Precision"]),
   recall = as.numeric(cm$byClass["Recall"]),
   f1 = as.numeric(cm$byClass["F1"]),
+  best_threshold = best_param$best_threshold,
   filters1 = best_param$filters1,
   filters2 = best_param$filters2,
   filters3 = best_param$filters3,

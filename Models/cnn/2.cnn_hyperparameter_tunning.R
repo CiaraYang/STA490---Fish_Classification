@@ -1,9 +1,3 @@
-# =========================================================
-# 02_tune_cnn.R
-# Hyperparameter tuning for fish 1D CNN
-# =========================================================
-
-## ---- Libraries ----
 library(dplyr)
 library(tidymodels)
 library(tensorflow)
@@ -200,7 +194,7 @@ for (i in 1:n_subset) {
   prob_val <- cnn %>% predict(x_validate, verbose = 0)
   prob_class1 <- prob_val[, 2]
   
-  thresholds <- seq(0.1, 0.5, by = 0.1)
+  thresholds <- seq(0.1, 0.9, by = 0.1)
   bal_acc_each <- rep(NA, length(thresholds))
   
   for (j in seq_along(thresholds)) {
