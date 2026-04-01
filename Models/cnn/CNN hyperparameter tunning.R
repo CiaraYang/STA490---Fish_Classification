@@ -87,6 +87,8 @@ grid.search.subset <- grid.search.full[sample(1:nrow(grid.search.full), n_subset
 val_loss <- rep(NA, n_subset)
 best_epoch_loss <- rep(NA, n_subset)
 val_auc <- rep(NA, n_subset)
+best_threshold <- rep(NA, n_subset)
+val_bal_acc <- rep(NA, n_subset)
 
 input_length <- dim(x_train)[2]
 
@@ -166,7 +168,6 @@ build_cnn_model <- function(filters1, filters2, filters3, filters4, filters5,
 for (i in 1:n_subset) {
   cat("Processing Model #", i, "\n")
   
-  
   cnn <- build_cnn_model(
     filters1 = grid.search.subset$filters1[i],
     filters2 = grid.search.subset$filters2[i],
@@ -195,6 +196,29 @@ for (i in 1:n_subset) {
   val_loss[i] <- min(cnn_history$metrics$val_loss)
   best_epoch_loss[i] <- which.min(cnn_history$metrics$val_loss)
   val_auc[i] <- max(cnn_history$metrics$val_auc)
+  
+  prob_val <- cnn %>% predict(x_validate, verbose = 0)
+  prob_class1 <- prob_val[, 2]
+  
+  thresholds <- seq(0.1, 0.5, by = 0.1)
+  bal_acc_each <- rep(NA, length(thresholds))
+  
+  for (j in seq_along(thresholds)) {
+    pred_val <- ifelse(prob_class1 >= thresholds[j], 1, 0)
+    
+    cm <- confusionMatrix(
+      data = factor(pred_val, levels = c(0, 1)),
+      reference = factor(y_validate, levels = c(0, 1)),
+      positive = "1"
+    )
+    
+    sens <- unname(cm$byClass["Sensitivity"])
+    spec <- unname(cm$byClass["Specificity"])
+    bal_acc_each[j] <- (sens + spec) / 2
+  }
+  
+  best_threshold[i] <- thresholds[which.max(bal_acc_each)]
+  val_bal_acc[i] <- max(bal_acc_each)
 }
 
 ## ---- Collect results ----
@@ -202,7 +226,9 @@ tuning_results <- grid.search.subset %>%
   mutate(
     val_loss = val_loss,
     best_epoch = best_epoch_loss,
-    val_auc = val_auc
+    val_auc = val_auc,
+    best_threshold = best_threshold,
+    val_bal_acc = val_bal_acc
   ) %>%
   arrange(val_loss, desc(val_auc))
 
@@ -216,6 +242,4 @@ cat("\nBest parameter row:\n")
 print(best_param)
 
 ## ---- Save results ----
-write.csv(tuning_results, "Data/cnn_tuning_results.csv", row.names = FALSE)
 save(tuning_results, best_param, file = "Data/cnn_tuning_results.RData")
-
