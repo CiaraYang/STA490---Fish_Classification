@@ -92,7 +92,7 @@ dnn %>% compile(
 history <- dnn %>% fit(
   x_train, y_train,
   batch_size = as.integer(param$batch_size),
-  epochs = 200,
+  epochs = 150,
   validation_data = list(x_validate, y_validate),
   callbacks = callbacks,
   verbose = 1
