@@ -175,4 +175,10 @@ ggplot(threshold_results, aes(x = threshold)) +
     y = "Metric Value",
     color = "Metric"
   ) +
+  geom_vline(xintercept = best_threshold, linetype = "dashed", color = "grey") +
+  labs(
+    title = "Threshold vs Balanced Accuracy",
+    x = "Threshold",
+    y = "Balanced Accuracy"
+  ) +
   theme_minimal()
