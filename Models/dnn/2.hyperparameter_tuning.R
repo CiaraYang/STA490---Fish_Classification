@@ -17,16 +17,37 @@ x_train <- matrix(x_train[, , 1], nrow = dim(x_train)[1], ncol = dim(x_train)[2]
 x_validate <- matrix(x_validate[, , 1], nrow = dim(x_validate)[1], ncol = dim(x_validate)[2])
 x_test <- matrix(x_test[, , 1], nrow = dim(x_test)[1], ncol = dim(x_test)[2])
 
+# make sure y is numeric 0/1
+y_train <- as.numeric(y_train)
+y_validate <- as.numeric(y_validate)
+y_test <- as.numeric(y_test)
+
 # input dimension
 input_dim <- ncol(x_train)
 
-# class weights
+# class counts
 class_counts <- table(y_train)
+print(class_counts)
 
-class_weight <- list(
-  "0" = as.numeric(sum(class_counts) / (2 * class_counts["0"])),
-  "1" = as.numeric(sum(class_counts) / (2 * class_counts["1"]))
-)
+# focal loss parameters
+alpha_pos <- as.numeric(class_counts["0"] / sum(class_counts))
+gamma_val <- 2.0
+
+binary_focal_loss <- function(alpha = 0.75, gamma = 2.0) {
+  function(y_true, y_pred) {
+    y_true <- tf$cast(y_true, tf$float32)
+    y_pred <- tf$cast(y_pred, tf$float32)
+    
+    eps <- tf$constant(1e-7, dtype = tf$float32)
+    y_pred <- tf$clip_by_value(y_pred, eps, 1 - eps)
+    
+    alpha_t <- y_true * alpha + (1 - y_true) * (1 - alpha)
+    p_t <- y_true * y_pred + (1 - y_true) * (1 - y_pred)
+    
+    loss <- -alpha_t * tf$pow(1 - p_t, gamma) * tf$math$log(p_t)
+    tf$reduce_mean(loss)
+  }
+}
 
 # build DNN model
 build_dnn_model <- function(input_dim,
@@ -34,7 +55,9 @@ build_dnn_model <- function(input_dim,
                             hidden2 = 64,
                             dropout = 0.3,
                             l2_lambda = 0.001,
-                            lr = 0.001) {
+                            lr = 0.001,
+                            alpha = 0.75,
+                            gamma = 2.0) {
   
   model <- keras_model_sequential() |>
     layer_dense(
@@ -57,9 +80,11 @@ build_dnn_model <- function(input_dim,
   model |>
     compile(
       optimizer = optimizer_adam(learning_rate = lr),
-      loss = "binary_crossentropy",
+      loss = binary_focal_loss(alpha = alpha, gamma = gamma),
       metrics = c("accuracy", metric_auc(name = "auc"))
     )
+  
+  model
 }
 
 # hyperparameter grid
@@ -81,15 +106,15 @@ grid_sub <- grid_full[sample(nrow(grid_full), n_try, replace = FALSE), ]
 make_callbacks <- function() {
   list(
     callback_early_stopping(
-      monitor = "val_auc",
-      mode = "max",
-      min_delta = 0.002,
+      monitor = "val_loss",
+      mode = "min",
+      min_delta = 0.001,
       patience = 30,
       restore_best_weights = TRUE
     ),
     callback_reduce_lr_on_plateau(
-      monitor = "val_auc",
-      mode = "max",
+      monitor = "val_loss",
+      mode = "min",
       factor = 0.5,
       patience = 5,
       min_lr = 1e-5
@@ -110,7 +135,9 @@ for (i in seq_len(nrow(grid_sub))) {
     hidden2 = grid_sub$hidden2[i],
     dropout = grid_sub$dropout[i],
     l2_lambda = grid_sub$l2[i],
-    lr = grid_sub$lr[i]
+    lr = grid_sub$lr[i],
+    alpha = alpha_pos,
+    gamma = gamma_val
   )
   
   history <- model |>
@@ -121,7 +148,6 @@ for (i in seq_len(nrow(grid_sub))) {
       epochs = 100,
       batch_size = grid_sub$batch_size[i],
       callbacks = make_callbacks(),
-      class_weight = class_weight,
       verbose = 0
     )
   
@@ -131,7 +157,7 @@ for (i in seq_len(nrow(grid_sub))) {
   
   if (length(val_loss_vec) == 0) next
   
-  best_epoch <- which.max(val_auc_vec)
+  best_epoch <- which.min(val_loss_vec)
   
   tuning_results <- rbind(
     tuning_results,
@@ -143,6 +169,8 @@ for (i in seq_len(nrow(grid_sub))) {
       l2 = grid_sub$l2[i],
       lr = grid_sub$lr[i],
       batch_size = grid_sub$batch_size[i],
+      alpha_pos = alpha_pos,
+      gamma = gamma_val,
       best_epoch = best_epoch,
       best_val_loss = val_loss_vec[best_epoch],
       best_val_acc = val_acc_vec[best_epoch],
@@ -152,8 +180,10 @@ for (i in seq_len(nrow(grid_sub))) {
 }
 
 tuning_results <- tuning_results[
-  order(-tuning_results$best_val_auc,
-        tuning_results$best_val_loss),
+  order(tuning_results$best_val_loss,
+        -tuning_results$best_val_auc),
 ]
+
+row.names(tuning_results) <- NULL
 
 head(tuning_results, 10)
