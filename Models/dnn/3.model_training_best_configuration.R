@@ -164,3 +164,15 @@ cm <- confusionMatrix(
 )
 
 print(cm)
+
+ggplot(threshold_results, aes(x = threshold)) +
+  geom_line(aes(y = sensitivity, color = "Sensitivity"), size = 1) +
+  geom_line(aes(y = specificity, color = "Specificity"), size = 1) +
+  geom_line(aes(y = balanced_accuracy, color = "Balanced Accuracy"), size = 1) +
+  labs(
+    title = "Threshold vs Performance Metrics",
+    x = "Threshold",
+    y = "Metric Value",
+    color = "Metric"
+  ) +
+  theme_minimal()
