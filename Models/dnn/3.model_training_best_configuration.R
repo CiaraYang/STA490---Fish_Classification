@@ -120,4 +120,3 @@ cm <- confusionMatrix(
 )
 
 print(cm)
-print(table(species_pred, true_labels))
