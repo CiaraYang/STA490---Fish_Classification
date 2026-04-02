@@ -1,96 +1,77 @@
 #!/usr/bin/env Rscript
 library("optparse")
+
 option_list = list(
   make_option(c("-d", "--debugging"), type="character", default="n",
               help="Debugging mode (only for local runs) [default= %default]", metavar="character"),
-  # make_option(c("-w", "--class_weights"), type="character", default="y",
-  #             help="Include class weights [default= %default]", metavar="character"),
-  # make_option(c("-c", "--callbacks"), type="character", default="y",
-  #             help="Include callabcks [default= %default]", metavar="character"),
   make_option(c("-m", "--model"), type="integer", default="1", 
               help="model ID [default= %default]", metavar="integer"),
   make_option(c("-b", "--batch"), type="integer", default="1", 
               help="100k batch ID for rerunning missing models [default= %default]", metavar="integer"),
   make_option(c("-r", "--rerun"), type="character", default="n",
               help="Rerun missing models [default= %default]", metavar="character")
-  
 )
-### Everything is set to incorporate step size tunning for sourceCpp if needed in the future 
-opt_parser = OptionParser(option_list=option_list);
-opt = parse_args(opt_parser);
+
+opt_parser = OptionParser(option_list=option_list)
+opt = parse_args(opt_parser)
 
 model_id = opt$model
-include_cw = opt$class_weights == "y"
-include_callbacks = opt$callbacks == "y"
 debug_mode = opt$debugging == "y"
 rerun_model = opt$rerun == "y"
 
 setwd("../../")
 
 Sys.setenv(UV_OFFLINE=1)
-## Changes model_id if rerun is set to true ##
 
 if(rerun_model){
   if(opt$batch == 1){
-
     missing_models = readRDS("Models/cnn/drac/training/missing_models_1_100000.rds")
-
   } else if(opt$batch == 2){
-
     missing_models = readRDS("Models/cnn/drac/training/missing_models_100001_200000.rds")
-
   } else if(opt$batch == 3){
-
     missing_models = readRDS("Models/cnn/drac/training/missing_models_200001_300000.rds")
-
   } else if(opt$batch == 4){
-
     missing_models = readRDS("Models/cnn/drac/training/missing_models_300001_400000.rds")
-
   } else if(opt$batch == 5){
-
     missing_models = readRDS("Models/cnn/drac/training/missing_models_400001_500000.rds")
-
   } else if(opt$batch == 6){
-
     missing_models = readRDS("Models/cnn/drac/training/missing_models_500001_total.rds")
-
   }
-  new_model_id = missing_models[model_id]
-  model_id = new_model_id
+  model_id = missing_models[model_id]
 }
 
-# =========================================================
-# 02_tune_cnn.R
-# Hyperparameter tuning for fish 1D CNN
-# =========================================================
-
-# ## ---- Libraries ----
 library(dplyr)
 library(tidymodels)
 library(tensorflow)
-# library(caret)
-# library(rsample)
+library(caret)
+library(rsample)
 library(keras3)
 
-##
 if(debug_mode){
   library(reticulate)
-  use_python("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3", required = TRUE) # change here
+  use_python("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3", required = TRUE)
 }
 
-
 ## ---- Load prepared data ----
-x_train = readRDS("Data/x_train.rds")
-x_validate = readRDS("Data/x_validate.rds")
-x_test = readRDS("Data/x_test.rds")
+x_train <- readRDS("Data/x_train.rds")
+x_validate <- readRDS("Data/x_validate.rds")
+x_test <- readRDS("Data/x_test.rds")
 
-dummy_y_train = readRDS("Data/dummy_y_train.rds")
-dummy_y_val = readRDS("Data/dummy_y_val.rds")
-# saveRDS(dummy_y_val,"Data/dummy_y_val.rds")
-y_train = readRDS("Data/y_train.rds")
-y_validate = readRDS("Data/y_validate.rds")
-y_test = readRDS("Data/y_test.rds")
+y_train <- readRDS("Data/y_train.rds")
+y_validate <- readRDS("Data/y_validate.rds")
+y_test <- readRDS("Data/y_test.rds")
+
+dummy_y_train <- readRDS("Data/dummy_y_train.rds")
+dummy_y_val <- readRDS("Data/dummy_y_val.rds")
+dummy_y_test <- readRDS("Data/dummy_y_test.rds")
+
+## ---- Check data ----
+cat("x_train shape:", dim(x_train), "\n")
+cat("x_validate shape:", dim(x_validate), "\n")
+cat("x_test shape:", dim(x_test), "\n")
+print(table(y_train))
+print(table(y_validate))
+print(table(y_test))
 
 ## ---- Class weight calculation ----
 train_tab <- table(y_train)
@@ -107,10 +88,6 @@ callbacks <- list(
     restore_best_weights = TRUE
   )
 )
-
-# for using legacy optimizers which work better with newer Macs
-optimizers <- keras3::keras$optimizers # change here
-
 
 ## ---- Parameter grid ----
 filters1 <- c(8, 16, 32)
@@ -143,11 +120,10 @@ grid.search.full <- expand.grid(
   droprate5 = droprate5
 )
 
-# Create vectors to store validation loss and best epoch in
 ## ---- Storage ----
-val_loss<-rep(NA,1)
-best_epoch_loss<-rep(NA,1)
-val_auc<-rep(NA,1)
+val_loss <- rep(NA, 1)
+best_epoch_loss <- rep(NA, 1)
+val_auc <- rep(NA, 1)
 
 print(paste0("Processing Model #", model_id))
 
@@ -160,8 +136,9 @@ build_cnn_model <- function(filters1, filters2, filters3, filters4, filters5,
                             droprate1, droprate2, droprate3, droprate4, droprate5,
                             input_length) {
   
-  model <- keras_model_sequential(input_shape = c(input_length, 1)) %>%
+  model <- keras_model_sequential() %>%
     layer_conv_1d(
+      input_shape = c(input_length, 1),
       filters = filters1,
       kernel_size = kernel_size,
       activation = "relu",
@@ -227,6 +204,7 @@ build_cnn_model <- function(filters1, filters2, filters3, filters4, filters5,
 
 ## ---- Run search ----
 set_random_seed(15)
+
 cnn <- build_cnn_model(
   filters1 = grid.search.full$filters1[model_id],
   filters2 = grid.search.full$filters2[model_id],
@@ -252,27 +230,19 @@ cnn_history <- cnn %>% fit(
   verbose = 2
 )
 
-
 val_loss[1] <- min(cnn_history$metrics$val_loss)
 best_epoch_loss[1] <- which.min(cnn_history$metrics$val_loss)
 val_auc[1] <- max(cnn_history$metrics$val_auc)
 
-
 t2 = Sys.time()
-t2 - t1
+print(t2 - t1)
 
-# print("--------")
+final_output = c(val_loss, best_epoch_loss, val_auc, model_id)
 
+nbatch = (model_id - 1) %/% 100000 + 1
+saveRDS(
+  final_output,
+  file = paste0("Models/cnn/drac/training/training_metrics_b", nbatch, "/training_output_", model_id, ".rds")
+)
 
-val_loss[1]<-min(cnn_history$metrics$val_loss)
-best_epoch_loss[1]<-which(cnn_history$metrics$val_loss==min(cnn_history$metrics$val_loss))
-val_auc[1] <- cnn_history$metrics$val_auc[best_epoch_loss[1]]
-
-final_output = c(val_loss,best_epoch_loss,val_auc,model_id)
-
-nbatch = (model_id-1)%/%100000 + 1
-saveRDS(final_output,file = paste0("Models/cnn/drac/training/training_metrics_b",nbatch,"/training_output_",model_id,".rds"))
-
-
-print(paste0("training metrics for cnn with parameter configuration ",model_id," ready!"))
-
+print(paste0("training metrics for cnn with parameter configuration ", model_id, " ready!"))
