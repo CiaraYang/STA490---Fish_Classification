@@ -116,7 +116,7 @@ history <- cnn %>% fit(
   x = x_train,
   y = dummy_y_train,
   batch_size = best_param$batch_size,
-  epochs = 200,
+  epochs = 150,
   validation_data = list(x_validate, dummy_y_val),
   class_weight = class_weights,
   callbacks = callbacks,
@@ -134,22 +134,12 @@ pred_probs <- cnn %>% predict(x_test, verbose = 0)
 
 prob_smelt <- pred_probs[, 2]
 
-species_pred <- factor(
-  ifelse(prob_smelt >= best_param$best_threshold, "Rainbow Smelt", "Alewife"),
-  levels = c("Alewife", "Rainbow Smelt")
-)
-
 true_labels <- factor(
   ifelse(dummy_y_test[, 1] == 1, "Alewife", "Rainbow Smelt"),
   levels = c("Alewife", "Rainbow Smelt")
 )
 
-cm <- confusionMatrix(
-  data = species_pred,
-  reference = true_labels,
-  positive = "Rainbow Smelt"
-)
-
+# ROC and AUC
 roc_obj <- roc(
   response = true_labels,
   predictor = prob_smelt,
@@ -160,6 +150,59 @@ roc_obj <- roc(
 test_auc <- as.numeric(auc(roc_obj))
 best_epoch <- which.min(history$metrics$val_loss)
 
+# try all thresholds from 0.00 to 1.00
+thresholds <- seq(0, 1, by = 0.01)
+
+threshold_results <- data.frame()
+
+for (t in thresholds) {
+  
+  species_pred <- factor(
+    ifelse(prob_smelt >= t, "Rainbow Smelt", "Alewife"),
+    levels = c("Alewife", "Rainbow Smelt")
+  )
+  
+  cm_tmp <- confusionMatrix(
+    data = species_pred,
+    reference = true_labels,
+    positive = "Rainbow Smelt"
+  )
+  
+  threshold_results <- rbind(
+    threshold_results,
+    data.frame(
+      threshold = t,
+      accuracy = as.numeric(cm_tmp$overall["Accuracy"]),
+      sensitivity = as.numeric(cm_tmp$byClass["Sensitivity"]),
+      specificity = as.numeric(cm_tmp$byClass["Specificity"]),
+      balanced_accuracy = as.numeric(cm_tmp$byClass["Balanced Accuracy"]),
+      precision = as.numeric(cm_tmp$byClass["Precision"]),
+      recall = as.numeric(cm_tmp$byClass["Recall"]),
+      f1 = as.numeric(cm_tmp$byClass["F1"])
+    )
+  )
+}
+
+print(threshold_results)
+
+# select best threshold by balanced accuracy
+best_row <- which.max(threshold_results$balanced_accuracy)
+best_threshold <- threshold_results$threshold[best_row]
+
+cat("Best threshold:", best_threshold, "\n")
+
+# final prediction using best threshold
+species_pred <- factor(
+  ifelse(prob_smelt >= best_threshold, "Rainbow Smelt", "Alewife"),
+  levels = c("Alewife", "Rainbow Smelt")
+)
+
+cm <- confusionMatrix(
+  data = species_pred,
+  reference = true_labels,
+  positive = "Rainbow Smelt"
+)
+
 best_result <- tibble(
   val_loss = min(history$metrics$val_loss),
   val_auc = history$metrics$val_auc[best_epoch],
@@ -167,6 +210,7 @@ best_result <- tibble(
   test_auc_keras = eval[["auc"]],
   test_accuracy_keras = eval[["accuracy"]],
   test_auc_pROC = test_auc,
+  best_threshold = best_threshold,
   accuracy = as.numeric(cm$overall["Accuracy"]),
   sensitivity = as.numeric(cm$byClass["Sensitivity"]),
   specificity = as.numeric(cm$byClass["Specificity"]),
@@ -174,7 +218,6 @@ best_result <- tibble(
   precision = as.numeric(cm$byClass["Precision"]),
   recall = as.numeric(cm$byClass["Recall"]),
   f1 = as.numeric(cm$byClass["F1"]),
-  best_threshold = best_param$best_threshold,
   filters1 = best_param$filters1,
   filters2 = best_param$filters2,
   filters3 = best_param$filters3,
@@ -194,9 +237,30 @@ print(best_result)
 print(cm)
 
 write.csv(best_result, file.path(test_dir, "best_model_result.csv"), row.names = FALSE)
+write.csv(threshold_results, file.path(test_dir, "threshold_results.csv"), row.names = FALSE)
+
 saveRDS(best_result, file.path(test_dir, "best_model_result.rds"))
+saveRDS(threshold_results, file.path(test_dir, "threshold_results.rds"))
 
 save(
-  cnn, history, cm, best_param, best_result, pred_probs, roc_obj,
+  cnn, history, cm, best_param, best_result, threshold_results, pred_probs, roc_obj,
   file = file.path(test_dir, "best_model_result.RData")
 )
+
+ggplot(threshold_results, aes(x = threshold)) +
+  geom_line(aes(y = sensitivity, color = "Sensitivity"), size = 1) +
+  geom_line(aes(y = specificity, color = "Specificity"), size = 1) +
+  geom_line(aes(y = balanced_accuracy, color = "Balanced Accuracy"), size = 1) +
+  labs(
+    title = "Threshold vs Performance Metrics",
+    x = "Threshold",
+    y = "Metric Value",
+    color = "Metric"
+  ) +
+  geom_vline(xintercept = best_threshold, linetype = "dashed", color = "grey") +
+  labs(
+    title = "Threshold vs Balanced Accuracy",
+    x = "Threshold",
+    y = "Balanced Accuracy"
+  ) +
+  theme_minimal()
