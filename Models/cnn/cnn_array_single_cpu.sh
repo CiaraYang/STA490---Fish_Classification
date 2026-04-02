@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --array=0-9999%500
 
-#SBATCH --output=Models/cnn/logs/lg_%A_%a.out
+#SBATCH --output=logs/lg_%A_%a.out
 
 BATCH=$1
 

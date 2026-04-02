@@ -3,6 +3,8 @@
 #SBATCH --time=0:180:00
 #SBATCH --cpus-per-task=1
 
+#SBATCH --output=logs/lg_%A_%a.out
+
 module load r/4.4
 
 MODEL=$1
