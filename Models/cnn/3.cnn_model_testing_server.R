@@ -56,7 +56,7 @@ build_cnn_model <- function(param, input_length) {
     ) %>%
     layer_dropout(rate = param$droprate1) %>%
     layer_batch_normalization() %>%
-
+    
     layer_conv_1d(
       filters = param$filters2,
       kernel_size = param$kernel_size,
@@ -66,7 +66,7 @@ build_cnn_model <- function(param, input_length) {
     layer_dropout(rate = param$droprate2) %>%
     layer_batch_normalization() %>%
     layer_max_pooling_1d(pool_size = 2) %>%
-
+    
     layer_conv_1d(
       filters = param$filters3,
       kernel_size = param$kernel_size,
@@ -75,7 +75,7 @@ build_cnn_model <- function(param, input_length) {
     ) %>%
     layer_dropout(rate = param$droprate3) %>%
     layer_batch_normalization() %>%
-
+    
     layer_conv_1d(
       filters = param$filters4,
       kernel_size = param$kernel_size,
@@ -85,7 +85,7 @@ build_cnn_model <- function(param, input_length) {
     layer_dropout(rate = param$droprate4) %>%
     layer_max_pooling_1d(pool_size = 2) %>%
     layer_batch_normalization() %>%
-
+    
     layer_conv_1d(
       filters = param$filters5,
       kernel_size = param$kernel_size,
@@ -94,7 +94,7 @@ build_cnn_model <- function(param, input_length) {
     ) %>%
     layer_dropout(rate = param$droprate5) %>%
     layer_batch_normalization() %>%
-
+    
     layer_flatten() %>%
     layer_dense(units = 2, activation = "softmax")
 }
@@ -104,15 +104,15 @@ input_length <- dim(x_train)[2]
 all_results <- list()
 
 for (i in seq_len(nrow(top20_models))) {
-
+  
   cat("Running model", i, "\n")
-
+  
   param <- top20_models[i, ]
-
+  
   set_random_seed(15)
-
+  
   cnn <- build_cnn_model(param, input_length)
-
+  
   cnn %>% compile(
     optimizer = optimizer_adam(learning_rate = 1e-4),
     loss = "categorical_crossentropy",
@@ -121,7 +121,7 @@ for (i in seq_len(nrow(top20_models))) {
       metric_categorical_accuracy(name = "accuracy")
     )
   )
-
+  
   history <- cnn %>% fit(
     x = x_train,
     y = dummy_y_train,
@@ -132,45 +132,79 @@ for (i in seq_len(nrow(top20_models))) {
     callbacks = callbacks,
     verbose = 1
   )
-
+  
   eval <- cnn %>% evaluate(
     x_test, dummy_y_test,
     verbose = 0,
     return_dict = TRUE
   )
-
+  
   pred_probs <- cnn %>% predict(x_test, verbose = 0)
-
+  
   prob_smelt <- pred_probs[, 2]
-  pred_class_idx <- apply(pred_probs, 1, which.max)
-
-  species_pred <- factor(
-    ifelse(pred_class_idx == 1, "Alewife", "Rainbow Smelt"),
-    levels = c("Alewife", "Rainbow Smelt")
-  )
-
+  
   true_labels <- factor(
     ifelse(dummy_y_test[, 1] == 1, "Alewife", "Rainbow Smelt"),
     levels = c("Alewife", "Rainbow Smelt")
   )
-
+  
+  thresholds <- seq(0.01, 0.99, by = 0.01)
+  
+  threshold_results <- data.frame()
+  
+  for (t in thresholds) {
+    
+    species_pred <- factor(
+      ifelse(prob_smelt >= t, "Rainbow Smelt", "Alewife"),
+      levels = c("Alewife", "Rainbow Smelt")
+    )
+    
+    cm_tmp <- confusionMatrix(
+      data = species_pred,
+      reference = true_labels,
+      positive = "Rainbow Smelt"
+    )
+    
+    threshold_results <- rbind(
+      threshold_results,
+      data.frame(
+        threshold = t,
+        accuracy = as.numeric(cm_tmp$overall["Accuracy"]),
+        sensitivity = as.numeric(cm_tmp$byClass["Sensitivity"]),
+        specificity = as.numeric(cm_tmp$byClass["Specificity"]),
+        balanced_accuracy = as.numeric(cm_tmp$byClass["Balanced Accuracy"]),
+        precision = as.numeric(cm_tmp$byClass["Precision"]),
+        recall = as.numeric(cm_tmp$byClass["Recall"]),
+        f1 = as.numeric(cm_tmp$byClass["F1"])
+      )
+    )
+  }
+  
+  best_row <- which.max(threshold_results$balanced_accuracy)
+  best_threshold <- threshold_results$threshold[best_row]
+  
+  species_pred <- factor(
+    ifelse(prob_smelt >= best_threshold, "Rainbow Smelt", "Alewife"),
+    levels = c("Alewife", "Rainbow Smelt")
+  )
+  
   cm <- confusionMatrix(
     data = species_pred,
     reference = true_labels,
     positive = "Rainbow Smelt"
   )
-
+  
   roc_obj <- roc(
     response = true_labels,
     predictor = prob_smelt,
     levels = c("Alewife", "Rainbow Smelt"),
     direction = "<"
   )
-
+  
   test_auc <- as.numeric(auc(roc_obj))
-
+  
   best_epoch <- which.min(history$metrics$val_loss)
-
+  
   metrics_tbl <- tibble(
     model = i,
     val_loss = min(history$metrics$val_loss),
@@ -179,6 +213,7 @@ for (i in seq_len(nrow(top20_models))) {
     test_auc_keras = eval[["auc"]],
     test_accuracy_keras = eval[["accuracy"]],
     test_auc_pROC = test_auc,
+    best_threshold = best_threshold,
     accuracy = cm$overall["Accuracy"],
     sensitivity = cm$byClass["Sensitivity"],
     specificity = cm$byClass["Specificity"],
@@ -187,11 +222,11 @@ for (i in seq_len(nrow(top20_models))) {
     recall = cm$byClass["Recall"],
     f1 = cm$byClass["F1"]
   )
-
+  
   print(metrics_tbl)
-
+  
   all_results[[i]] <- metrics_tbl
-
+  
   write.csv(
     metrics_tbl,
     file.path(test_dir, paste0("model_", i, ".csv")),
