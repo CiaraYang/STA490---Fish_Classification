@@ -241,13 +241,13 @@ all_results_tbl <- all_results_tbl %>%
 
 print(all_results_tbl)
 
-write.csv(
-  all_results_tbl,
-  file.path(test_dir, "top20_results.csv"),
-  row.names = FALSE
-)
-
-saveRDS(
-  all_results_tbl,
-  file.path(test_dir, "top20_results.rds")
-)
+# write.csv(
+#   all_results_tbl,
+#   file.path(test_dir, "top20_results.csv"),
+#   row.names = FALSE
+# )
+# 
+# saveRDS(
+#   all_results_tbl,
+#   file.path(test_dir, "top20_results.rds")
+# )

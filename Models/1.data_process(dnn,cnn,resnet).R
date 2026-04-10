@@ -169,16 +169,16 @@ dummy_y_train <- to_categorical(y_train, num_classes = 2)
 dummy_y_val <- to_categorical(y_validate, num_classes = 2)
 dummy_y_test <- to_categorical(y_test, num_classes = 2)
 
-saveRDS(x_train, "Data/x_train.rds")
-saveRDS(x_validate, "Data/x_validate.rds")
-saveRDS(x_test, "Data/x_test.rds")
-
-saveRDS(y_train, "Data/y_train.rds")
-saveRDS(y_validate, "Data/y_validate.rds")
-saveRDS(y_test, "Data/y_test.rds")
-
-saveRDS(dummy_y_train, "Data/dummy_y_train.rds")
-saveRDS(dummy_y_val, "Data/dummy_y_val.rds")
-saveRDS(dummy_y_test, "Data/dummy_y_test.rds")
-
-cat("Saved all RDS files to Data/\n")
+# saveRDS(x_train, "Data/x_train.rds")
+# saveRDS(x_validate, "Data/x_validate.rds")
+# saveRDS(x_test, "Data/x_test.rds")
+# 
+# saveRDS(y_train, "Data/y_train.rds")
+# saveRDS(y_validate, "Data/y_validate.rds")
+# saveRDS(y_test, "Data/y_test.rds")
+# 
+# saveRDS(dummy_y_train, "Data/dummy_y_train.rds")
+# saveRDS(dummy_y_val, "Data/dummy_y_val.rds")
+# saveRDS(dummy_y_test, "Data/dummy_y_test.rds")
+# 
+# cat("Saved all RDS files to Data/\n")

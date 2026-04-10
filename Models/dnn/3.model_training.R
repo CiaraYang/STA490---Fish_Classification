@@ -205,9 +205,9 @@ all_results_tbl <- bind_rows(all_results) %>%
 
 print(all_results_tbl)
 
-saveRDS(
-  all_results_tbl,
-  file.path(test_dir, "top20_dnn_retrain_results.rds")
-)
+# saveRDS(
+#   all_results_tbl,
+#   file.path(test_dir, "top20_dnn_retrain_results.rds")
+# )
 
 

@@ -209,4 +209,4 @@ cat("\nBest parameter row:\n")
 print(best_param)
 
 ## ---- Save results ----
-save(tuning_results, best_param, file = "Data/cnn_tuning_results.RData")
+# save(tuning_results, best_param, file = "Data/cnn_tuning_results.RData")

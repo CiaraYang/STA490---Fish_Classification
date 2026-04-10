@@ -236,16 +236,16 @@ print(best_param)
 print(best_result)
 print(cm)
 
-write.csv(best_result, file.path(test_dir, "best_model_result.csv"), row.names = FALSE)
-write.csv(threshold_results, file.path(test_dir, "threshold_results.csv"), row.names = FALSE)
-
-saveRDS(best_result, file.path(test_dir, "best_model_result.rds"))
-saveRDS(threshold_results, file.path(test_dir, "threshold_results.rds"))
-
-save(
-  cnn, history, cm, best_param, best_result, threshold_results, pred_probs, roc_obj,
-  file = file.path(test_dir, "best_model_result.RData")
-)
+# write.csv(best_result, file.path(test_dir, "best_model_result.csv"), row.names = FALSE)
+# write.csv(threshold_results, file.path(test_dir, "threshold_results.csv"), row.names = FALSE)
+# 
+# saveRDS(best_result, file.path(test_dir, "best_model_result.rds"))
+# saveRDS(threshold_results, file.path(test_dir, "threshold_results.rds"))
+# 
+# save(
+#   cnn, history, cm, best_param, best_result, threshold_results, pred_probs, roc_obj,
+#   file = file.path(test_dir, "best_model_result.RData")
+# )
 
 ggplot(threshold_results, aes(x = threshold)) +
   geom_line(aes(y = sensitivity, color = "Sensitivity"), size = 1) +
