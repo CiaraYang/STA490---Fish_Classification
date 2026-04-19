@@ -247,22 +247,6 @@ split_track_summary <- bind_rows(
 cat("\nNumber of unique fish tracks in each split:\n")
 print(split_track_summary)
 
-
-# -------------------------
-# Standardize signal using training pings only
-# -------------------------
-signal_train_ping <- as.matrix(train_df_ping[, freq_cols])
-signal_validate_ping <- as.matrix(validate_df_ping[, freq_cols])
-signal_test_ping <- as.matrix(test_df_ping[, freq_cols])
-
-signal_means <- apply(signal_train_ping, 2, mean, na.rm = TRUE)
-signal_sds <- apply(signal_train_ping, 2, sd, na.rm = TRUE)
-signal_sds[signal_sds == 0] <- 1
-
-train_df_ping[, freq_cols] <- scale(train_df_ping[, freq_cols], center = signal_means, scale = signal_sds)
-validate_df_ping[, freq_cols] <- scale(validate_df_ping[, freq_cols], center = signal_means, scale = signal_sds)
-test_df_ping[, freq_cols] <- scale(test_df_ping[, freq_cols], center = signal_means, scale = signal_sds)
-
 # -------------------------
 # Function: build 5-ping sequences within each track
 # Rule:
