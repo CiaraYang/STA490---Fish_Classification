@@ -28,8 +28,8 @@ setwd("../../../../../")
 nbatch = opt$batch
 
 { 
-  models_per_batch = 2000
-  total_models = 14400
+  models_per_batch = 200
+  total_models = 648
   
   start_idx = (nbatch - 1) * models_per_batch + 1
   end_idx = min(nbatch * models_per_batch, total_models)

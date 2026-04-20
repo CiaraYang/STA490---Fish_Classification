@@ -1,6 +1,6 @@
 # =========================================================
 # 02_rnn_hyperparameter_tuning.R
-# Total combinations = 14,400
+# Total combinations = 648
 # =========================================================
 
 library(optparse)
@@ -60,15 +60,15 @@ cat("Class weight list:\n")
 print(class_weight_list)
 
 # -------------------------
-# grid (14,400)
+# grid (648)
 # -------------------------
-lstmunits <- c(16, 32, 64, 128, 256, 384)   # 6
-neuron1   <- c(16, 32, 64, 128, 256)        # 5
-batchsize <- c(32, 64, 128, 256)            # 4
-lr        <- c(1e-4, 2e-4, 3e-4, 5e-4, 1e-3) # 5
-dropout1  <- c(0.0, 0.1, 0.2, 0.3)          # 4
-regrate   <- c(1e-7, 1e-6, 1e-5)            # 3
-use_batchnorm <- c(TRUE, FALSE)             # 2
+lstmunits <- c(32, 64, 128)          # 3
+neuron1   <- c(32, 64, 128)          # 3
+batchsize <- c(32, 64, 128)          # 3
+lr        <- c(1e-4, 5e-4, 1e-3)     # 3
+dropout1  <- c(0.0, 0.2)             # 2
+regrate   <- c(1e-6, 1e-5)           # 2
+use_batchnorm <- c(TRUE, FALSE)      # 2
 
 grid.search.full <- expand.grid(
   lstmunits = lstmunits,
@@ -88,7 +88,7 @@ saveRDS(grid.search.full, "Models/rnn/grid.search.full.rds")
 # -------------------------
 # Batch setup
 # -------------------------
-models_per_batch <-2000
+models_per_batch <-200
 
 start_idx <- (nbatch - 1) * models_per_batch + 1
 end_idx <- min(nbatch * models_per_batch, nrow(grid.search.full))
@@ -187,7 +187,7 @@ for (i in model_indices) {
   rnn_history <- rnn %>% fit(
     x_train, dummy_y_train,
     batch_size = this_config$batchsize,
-    epochs = 200,
+    epochs = 80,
     validation_data = list(x_validate, dummy_y_val),
     class_weight = class_weight_list,
     callbacks = callbacks,
