@@ -92,25 +92,25 @@ callbacks <- list(
 # -------------------------
 # Hyperparameter grid
 # -------------------------
-regrate <- c(1e-6, 1e-5, 1e-4)
-lstmunits <- c(256, 128, 64)
-neuron1 <- c(256, 128, 64, 32, 16)
-batchsize <- c(100, 500, 1000, 1500)
+lstmunits <- c(32, 64, 128)
+neuron1   <- c(32, 64, 128)
+batchsize <- c(32, 64, 128)
+lr        <- c(1e-4, 5e-4, 1e-3)
+dropout1  <- c(0.0, 0.2)
+regrate   <- c(1e-6, 1e-5)
+use_batchnorm <- c(TRUE, FALSE)
 
 grid.search.full <- expand.grid(
-  regrate = regrate,
   lstmunits = lstmunits,
   neuron1 = neuron1,
-  batchsize = batchsize
+  batchsize = batchsize,
+  lr = lr,
+  dropout1 = dropout1,
+  regrate = regrate,
+  use_batchnorm = use_batchnorm
 )
 
-# set.seed(15)
-# x <- sample(1:nrow(grid.search.full), 20, replace = FALSE)
-# grid.search.subset <- grid.search.full[x, ]
-
-# val_loss <- vector(length = nrow(grid.search.subset))
-# best_epoch <- vector(length = nrow(grid.search.subset))
-# val_auc <- vector(length = nrow(grid.search.subset))
+saveRDS(grid.search.full, "Models/rnn/grid.search.full.rds")
 
 ## ---- Storage ----
 val_loss <- rep(NA, 1)
@@ -121,10 +121,6 @@ print(paste0("Processing Model #", model_id))
 
 t1 = Sys.time()
 
-# choose which models to run this time
-# Do this for 1:10 then 11:20 because it takes too long on its own
-# model_indices <- 11:20 # Change to 11:20 later
-
 set_random_seed(15)
 
 rnn <- keras_model_sequential() %>%
@@ -132,8 +128,17 @@ rnn <- keras_model_sequential() %>%
     input_shape = input_shape_use,
     units = grid.search.full$lstmunits[model_id]
   ) %>%
-  layer_activation_leaky_relu() %>%
-  layer_batch_normalization() %>%
+  layer_activation_leaky_relu()
+
+if (grid.search.full$use_batchnorm[model_id]) {
+  rnn <- rnn %>% layer_batch_normalization()
+}
+
+if (grid.search.full$dropout1[model_id] > 0) {
+  rnn <- rnn %>% layer_dropout(rate = grid.search.full$dropout1[model_id])
+}
+
+rnn <- rnn %>%
   layer_dense(
     units = grid.search.full$neuron1[model_id],
     activity_regularizer = regularizer_l2(l = grid.search.full$regrate[model_id])
@@ -142,7 +147,7 @@ rnn <- keras_model_sequential() %>%
   layer_dense(units = 2, activation = "softmax")
 
 rnn %>% compile(
-  optimizer = optimizer_adam(learning_rate = 1e-4),
+  optimizer = optimizer_adam(learning_rate = grid.search.full$lr[model_id]),
   loss = loss_categorical_crossentropy(),
   metrics = c("accuracy", metric_auc(name = "auc"))
 )
@@ -160,17 +165,16 @@ rnn_history <- rnn %>% fit(
 val_loss[1] <- min(rnn_history$metrics$val_loss)
 best_epoch_loss[1] <- which.min(rnn_history$metrics$val_loss)
 val_auc[1] <- max(rnn_history$metrics$val_auc)
-  
+
 t2 = Sys.time()
 print(t2 - t1)
 
 final_output = c(val_loss, best_epoch_loss, val_auc, model_id)
 
-nbatch = (model_id - 1) %/% 100000 + 1
+nbatch = (model_id - 1) %/% 200 + 1
 saveRDS(
   final_output,
   file = paste0("Models/rnn/drac/training/training_metrics_b", nbatch, "/training_output_", model_id, ".rds")
 )
 
-print(paste0("training metrics for cnn with parameter configuration ", model_id, " ready!"))
-
+print(paste0("training metrics for rnn with parameter configuration ", model_id, " ready!"))
