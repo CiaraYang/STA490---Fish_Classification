@@ -1,33 +1,28 @@
 #!/usr/bin/env Rscript
-library("optparse")
-option_list = list(
-  make_option(c("-d", "--debugging"), type="character", default="n",
-              help="Debugging mode (only for local runs) [default= %default]", metavar="character"),
-  # make_option(c("-w", "--class_weights"), type="character", default="y",
-  #             help="Include class weights [default= %default]", metavar="character"),
-  # make_option(c("-c", "--callbacks"), type="character", default="y",
-  #             help="Include callabcks [default= %default]", metavar="character"),
-  make_option(c("-m", "--model"), type="integer", default="1", 
-              help="model ID [default= %default]", metavar="integer"),
-  make_option(c("-b", "--batch"), type="integer", default="1", 
-              help="100k batch ID for rerunning missing models [default= %default]", metavar="integer"),
-  make_option(c("-r", "--rerun"), type="character", default="n",
-              help="Rerun missing models [default= %default]", metavar="character")
-  
-)
-### Everything is set to incorporate step size tunning for sourceCpp if needed in the future 
-opt_parser = OptionParser(option_list=option_list);
-opt = parse_args(opt_parser);
 
-model_id = opt$model
-include_cw = opt$class_weights == "y"
-include_callbacks = opt$callbacks == "y"
-debug_mode = opt$debugging == "y"
-rerun_model = opt$rerun == "y"
+library(optparse)
+
+option_list <- list(
+  make_option(c("-d", "--debugging"), type = "character", default = "n",
+              help = "Debugging mode for local runs [default = %default]", metavar = "character"),
+  make_option(c("-m", "--model"), type = "integer", default = 1,
+              help = "Model ID (row index of full hyperparameter grid) [default = %default]", metavar = "integer"),
+  make_option(c("-b", "--batch"), type = "integer", default = 1,
+              help = "100k batch ID for reruns [default = %default]", metavar = "integer"),
+  make_option(c("-r", "--rerun"), type = "character", default = "n",
+              help = "Rerun missing models [default = %default]", metavar = "character")
+)
+
+### Everything is set to incorporate step size tunning for sourceCpp if needed in the future 
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+
+model_id <- opt$model
+debug_mode <- opt$debugging == "y"
+rerun_model <- opt$rerun == "y"
 
 setwd("../../")
-
-Sys.setenv(UV_OFFLINE=1)
+Sys.setenv(UV_OFFLINE = 1)
 
 # =========================================================
 # 02_tune_resnet.R
@@ -37,18 +32,16 @@ Sys.setenv(UV_OFFLINE=1)
 library(dplyr)
 library(tensorflow)
 library(keras3)
-# library(caret)
 
-##
-if(debug_mode){
+if (debug_mode) {
   library(reticulate)
-  use_python("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3", required = TRUE) # change here
+  use_python("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3", required = TRUE)
 }
 
 set.seed(15)
 options(stringsAsFactors = FALSE)
 
-## ---- Load prepared data from updated data_process.R ----
+## ---- Load prepared data ----
 x_train <- readRDS("Data/x_train.rds")
 x_validate <- readRDS("Data/x_validate.rds")
 x_test <- readRDS("Data/x_test.rds")
@@ -69,40 +62,20 @@ print(table(y_validate))
 print(table(y_test))
 
 ## ---- Class weights ----
-# train_tab <- table(y_train)
-# cw <- as.numeric(train_tab[1] / train_tab[2])
-# class_weights <- list("0" = 1, "1" = cw)
-
-# train_tab <- table(y_train)
-# cw_vals <- as.numeric(sum(train_tab) / (2 * train_tab))
-# class_weights <- setNames(as.list(cw_vals), c("0", "1"))
-
 train_tab <- table(y_train)
 cw_vals <- as.numeric(sum(train_tab) / (2 * train_tab))
 class_weights <- setNames(as.list(cw_vals), names(train_tab))
 
 ## ---- Early stopping ----
-# callbacks <- list(
-#   callback_early_stopping(
-#     monitor = "val_loss",
-#     min_delta = 1e-3,
-#     patience = 30,
-#     restore_best_weights = TRUE
-#   )
-# )
-
 callbacks <- list(
   callback_early_stopping(
     monitor = "val_auc",
     mode = "max",
     min_delta = 1e-3,
-    patience = 12,
+    patience = 30,
     restore_best_weights = TRUE
   )
 )
-
-# for using legacy optimizers which work better with newer Macs
-optimizers <- keras3::keras$optimizers # change here
 
 ## ---- Residual block ----
 residual_block_1d <- function(x, filters, kernel_size, dropout_rate = 0) {
@@ -172,8 +145,6 @@ build_resnet_model <- function(input_length,
   x <- residual_block_1d(x, filters = filters2, kernel_size = kernel_size, dropout_rate = dropout_rate)
   x <- residual_block_1d(x, filters = filters2, kernel_size = kernel_size, dropout_rate = dropout_rate)
   
-  # oftmax makes all class probabilities add to 1, and categorical 
-  # crossentropy measures how well the model puts probability mass on the correct class.
   x <- x %>%
     layer_global_average_pooling_1d() %>%
     layer_dense(units = dense_units, activation = "relu") %>%
@@ -194,16 +165,14 @@ build_resnet_model <- function(input_length,
   model
 }
 
-
-## ---- Hyperparameter grid ----
-# make the model search a bit simpler and more targeted.
-filters1 <- c(8, 16, 32)
-filters2 <- c(16, 32, 64)
+## ---- Your full hyperparameter grid ----
+filters1 <- c(16, 32, 64)
+filters2 <- c(32, 64, 128)
 kernel_size <- c(3, 5, 9)
-dropout_rate <- c(0.1, 0.2, 0.3)
-dense_units <- c(16, 32, 64)
-batch_size <- c(64, 128)
-learning_rate <- c(1e-3, 3e-4, 1e-4)
+dropout_rate <- c(0, 0.05, 0.1, 0.2)
+dense_units <- c(32, 64, 128)
+batch_size <- c(32, 64, 128)
+learning_rate <- c(1e-3, 5e-4, 3e-4, 1e-4, 5e-5)
 
 grid.search.full <- expand.grid(
   filters1 = filters1,
@@ -215,26 +184,30 @@ grid.search.full <- expand.grid(
   learning_rate = learning_rate
 )
 
-# set.seed(15)
-# n_subset <- 30
-# grid.search.subset <- grid.search.full[
-#   sample(1:nrow(grid.search.full), n_subset, replace = FALSE),
-# ]
+n_models <- nrow(grid.search.full)
+if (model_id < 1 || model_id > n_models) {
+  stop(sprintf("model_id %d is out of range. Valid range is 1 to %d.", model_id, n_models))
+}
 
-# Create vectors to store validation loss and best epoch in
+print(n_models)
+
+## Optional: save once so you can reuse in processing scripts
+dir.create("Models/resnet", recursive = TRUE, showWarnings = FALSE)
+saveRDS(grid.search.full, "Models/resnet/grid.search.full.rds")
+
 ## ---- Storage ----
-val_loss <- rep(NA_real_, 1)
-best_epoch_loss <- rep(NA_integer_, 1)
-best_epoch_auc <- rep(NA_integer_, 1)
-val_auc <- rep(NA_real_, 1)
-val_accuracy <- rep(NA_real_, 1)
-val_loss_at_best_auc <- rep(NA_real_, 1)
-val_accuracy_at_best_auc <- rep(NA_real_, 1)
+val_loss <- NA_real_
+best_epoch_loss <- NA_integer_
+best_epoch_auc <- NA_integer_
+val_auc <- NA_real_
+val_accuracy <- NA_real_
+val_loss_at_best_auc <- NA_real_
+val_accuracy_at_best_auc <- NA_real_
 
 input_length <- dim(x_train)[2]
 
-## ---- Run tuning ----
-cat("Processing ResNet Model #", model_id, "\n")
+## ---- Run one model ----
+cat("Processing ResNet Model #", model_id, "out of", n_models, "\n")
 
 set_random_seed(15)
 
@@ -252,7 +225,7 @@ history <- resnet_model %>% fit(
   x = x_train,
   y = dummy_y_train,
   batch_size = grid.search.full$batch_size[model_id],
-  epochs = 100,
+  epochs = 150,
   validation_data = list(x_validate, dummy_y_val),
   class_weight = class_weights,
   callbacks = callbacks,
@@ -263,17 +236,33 @@ auc_hist <- history$metrics$val_auc
 loss_hist <- history$metrics$val_loss
 acc_hist <- history$metrics$val_accuracy
 
-val_loss[1] <- min(loss_hist)
-best_epoch_loss[1]<-which(loss_hist==min(loss_hist))
-best_epoch_auc[1] <- which.max(auc_hist)
-val_auc[1] <- auc_hist[best_epoch_auc[1]]
-val_loss_at_best_auc[1] <- loss_hist[best_epoch_auc[1]]
-val_accuracy_at_best_auc[1] <- acc_hist[best_epoch_auc[1]]
+val_loss <- min(loss_hist)
+best_epoch_loss <- which.min(loss_hist)
 
-final_output = c(val_loss,best_epoch_loss,best_epoch_auc,val_auc,val_loss_at_best_auc,val_accuracy_at_best_auc,model_id)
+best_auc <- max(auc_hist)
+tol <- 0.001
+candidate_epochs <- which(auc_hist >= best_auc - tol)
+best_epoch_auc <- max(candidate_epochs)
 
-nbatch = (model_id-1)%/%100000 + 1
-saveRDS(final_output,file = paste0("Models/resnet/drac/training/training_metrics_b",nbatch,"/training_output_",model_id,".rds"))
+val_auc <- auc_hist[best_epoch_auc]
+val_loss_at_best_auc <- loss_hist[best_epoch_auc]
+val_accuracy_at_best_auc <- acc_hist[best_epoch_auc]
 
+final_output <- c(
+  val_loss = val_loss,
+  best_epoch_loss = best_epoch_loss,
+  best_epoch_auc = best_epoch_auc,
+  val_auc = val_auc,
+  val_loss_at_best_auc = val_loss_at_best_auc,
+  val_accuracy_at_best_auc = val_accuracy_at_best_auc,
+  model_id = model_id
+)
 
-print(paste0("training metrics for resnet with parameter configuration ",model_id," ready!"))
+nbatch <- (model_id - 1) %/% 100000 + 1
+outdir <- paste0("Models/resnet/drac/training/training_metrics_b", nbatch)
+dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+
+saveRDS(final_output,
+        file = file.path(outdir, paste0("training_output_", model_id, ".rds")))
+
+cat("Training metrics for ResNet parameter configuration", model_id, "ready!\n")
