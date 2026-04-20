@@ -6,19 +6,11 @@ final_data_b1 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metr
 final_data_b2 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b2.rds")
 final_data_b3 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b3.rds")
 final_data_b4 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b4.rds")
-final_data_b5 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b5.rds")
-final_data_b6 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b6.rds")
-final_data_b7 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b7.rds")
-final_data_b8 = readRDS("Models/rnn/drac/training/training_metrics_full/val_metrics_b8.rds")
 
 final_data = rbind(final_data_b1,
                    final_data_b2,
                    final_data_b3,
-                   final_data_b4,
-                   final_data_b5,
-                   final_data_b6,
-                   final_data_b7,
-                   final_data_b8)
+                   final_data_b4)
 
 final_data %>% 
   left_join(grid.search.full, by = "model_id") %>% 
