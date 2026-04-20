@@ -83,6 +83,8 @@ grid.search.full <- expand.grid(
 cat("Total number of hyperparameter combinations:\n")
 print(nrow(grid.search.full))
 
+saveRDS(grid.search.full, "Models/rnn/grid.search.full.rds")
+
 # -------------------------
 # Batch setup
 # -------------------------
