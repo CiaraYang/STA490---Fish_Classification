@@ -1,56 +1,131 @@
 #!/usr/bin/env Rscript
-library("optparse")
-option_list = list(
-  # make_option(c("-d", "--debugging"), type="character", default="n",
-  #             help="Debugging mode (only for local runs) [default= %default]", metavar="character"),
-  # make_option(c("-w", "--class_weights"), type="character", default="y",
-  #             help="Include class weights [default= %default]", metavar="character"),
-  # make_option(c("-c", "--callbacks"), type="character", default="y",
-  #             help="Include callabcks [default= %default]", metavar="character"),
-  # make_option(c("-m", "--model"), type="integer", default="1", 
-  #             help="model ID [default= %default]", metavar="integer"),
-  make_option(c("-b", "--batch"), type="integer", default="1", 
-              help="100k batch ID for rerunning missing models [default= %default]", metavar="integer")#,
-  # make_option(c("-r", "--rerun"), type="character", default="n",
-  #             help="Rerun missing models [default= %default]", metavar="character")
-  
-)
-### Everything is set to incorporate step size tunning for sourceCpp if needed in the future 
-opt_parser = OptionParser(option_list=option_list);
-opt = parse_args(opt_parser);
 
+library(optparse)
 library(dplyr)
-library(tidyr)
-library(readr)
+library(tibble)
+
+option_list <- list(
+  make_option(
+    c("-b", "--batch"),
+    type = "integer",
+    default = 0,
+    help = "Batch ID [default = %default]",
+    metavar = "integer"
+  )
+)
+
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+
+nbatch <- opt$batch
 
 setwd("../../../../../")
 
-nbatch = opt$batch
+# -----------------------------
+# Read the exact grid used in tuning
+# -----------------------------
+grid_path <- "Models/resnet/grid.search.full.rds"
+grid.search.full <- readRDS(grid_path)
+n_models <- nrow(grid.search.full)
 
-{
-  batch_fitted_models = as.integer(1:100000 + 100000*(nbatch - 1))
-  mat_final_data = c(val_loss = 999, best_epoch_loss = -1, best_epoch_auc = -1, val_auc = -1 , val_loss_at_best_auc = -1, val_accuracy_at_best_auc = -1,model_id = -1)
-  t1 = Sys.time()
-  
-  for(i in batch_fitted_models){
-    model_fitted = file.exists(paste0("Models/resnet/drac/training/training_metrics_full/training_metrics_b",nbatch,"/training_output_",i,".rds"))
-    if(model_fitted){
-      aux_row = readRDS(paste0("Models/resnet/drac/training/training_metrics_full/training_metrics_b",nbatch,"/training_output_",i,".rds"))
-      mat_final_data = rbind(mat_final_data,aux_row)
-      rm(aux_row)
-    }
-  }
-  t2 = Sys.time()
-  t2-t1
-  
-  colnames(mat_final_data) = c("val_loss","best_epoch_loss","best_epoch_auc","val_auc","val_loss_at_best_auc","val_accuracy_at_best_auc","model_id")
-  
-  final_data = as_tibble(mat_final_data) %>% 
-    mutate(model_id = as.integer(model_id)) %>% 
-    filter(row_number() != 1)
-  
+cat("Grid file:", grid_path, "\n")
+cat("Number of valid configurations in grid:", n_models, "\n")
+
+# -----------------------------
+# Read all training outputs for this batch
+# -----------------------------
+metrics_dir <- paste0("Models/resnet/drac/training/training_metrics_b", nbatch)
+
+if (!dir.exists(metrics_dir)) {
+  stop("Metrics directory does not exist: ", metrics_dir)
 }
 
-saveRDS(final_data,file = paste0("Models/resnet/drac/training/training_metrics_full/val_metrics_b",nbatch,".rds"))
+metric_files <- list.files(
+  path = metrics_dir,
+  pattern = "^training_output_[0-9]+\\.rds$",
+  full.names = TRUE
+)
 
-print(paste0("Output from the directory training_metrics_b",nbatch," processed !"))
+cat("Number of metric files found in folder:", length(metric_files), "\n")
+
+if (length(metric_files) == 0) {
+  stop("No training_output_*.rds files found in: ", metrics_dir)
+}
+
+# -----------------------------
+# Read and combine safely
+# -----------------------------
+read_one_metric <- function(f) {
+  x <- readRDS(f)
+  
+  # ensure vector shape
+  x <- as.numeric(x)
+  
+  if (length(x) != 7) {
+    warning("Skipping file with unexpected length: ", f)
+    return(NULL)
+  }
+  
+  tibble(
+    val_loss = x[1],
+    best_epoch_loss = x[2],
+    best_epoch_auc = x[3],
+    val_auc = x[4],
+    val_loss_at_best_auc = x[5],
+    val_accuracy_at_best_auc = x[6],
+    model_id = as.integer(x[7]),
+    source_file = basename(f)
+  )
+}
+
+all_metrics_list <- lapply(metric_files, read_one_metric)
+all_metrics_list <- all_metrics_list[!vapply(all_metrics_list, is.null, logical(1))]
+raw_metrics <- bind_rows(all_metrics_list)
+
+cat("Rows read before cleaning:", nrow(raw_metrics), "\n")
+
+# -----------------------------
+# Diagnose bad rows
+# -----------------------------
+bad_id_rows <- raw_metrics %>%
+  filter(model_id < 1 | model_id > n_models)
+
+dup_id_rows <- raw_metrics %>%
+  count(model_id, name = "n_rows") %>%
+  filter(n_rows > 1)
+
+cat("Rows with invalid model_id:", nrow(bad_id_rows), "\n")
+cat("Duplicated model_id values:", nrow(dup_id_rows), "\n")
+
+if (nrow(bad_id_rows) > 0) {
+  cat("Invalid model_id rows:\n")
+  print(bad_id_rows %>% select(model_id, source_file))
+}
+
+if (nrow(dup_id_rows) > 0) {
+  cat("Duplicated model_id values:\n")
+  print(dup_id_rows)
+}
+
+# -----------------------------
+# Clean:
+# 1) keep only valid model IDs from current grid
+# 2) if duplicated, keep the one with smallest val_loss
+# -----------------------------
+final_data <- raw_metrics %>%
+  filter(model_id >= 1, model_id <= n_models) %>%
+  arrange(model_id, val_loss) %>%
+  group_by(model_id) %>%
+  slice(1) %>%
+  ungroup()
+
+cat("Rows after cleaning:", nrow(final_data), "\n")
+
+# -----------------------------
+# Save cleaned metrics
+# -----------------------------
+out_path <- paste0("Models/resnet/drac/training/val_metrics_b", nbatch, "_clean.rds")
+saveRDS(final_data, file = out_path)
+
+cat("Cleaned validation metrics saved to:\n", out_path, "\n")
+cat("Processing complete for batch ", nbatch, "\n", sep = "")
