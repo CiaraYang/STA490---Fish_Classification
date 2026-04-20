@@ -8,4 +8,4 @@ BATCH=$1
 
 module load r/4.4
 
-Rscript --vanilla rnn_hyperparameter_tuning_server.R -m $(($SLURM_ARRAY_TASK_ID + 1 + $BATCH*10000  ))
+Rscript --vanilla rnn_hyperparameter_tuning_server.R -m $(($SLURM_ARRAY_TASK_ID + 1 + $BATCH*200  ))
