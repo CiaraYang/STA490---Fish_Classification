@@ -27,10 +27,20 @@ setwd("../../../../../")
 
 nbatch = opt$batch
 
-{
-  batch_fitted_models = as.integer(1:100000 + 100000*(nbatch - 1))
+{ 
+  models_per_batch = 2000
+  total_models = 14400
+  
+  start_idx = (nbatch - 1) * models_per_batch + 1
+  end_idx = min(nbatch * models_per_batch, total_models)
+  
+  if(start_idx > total_models){
+    stop("Batch index exceeds total number of models.")
+  }
+  
+  batch_fitted_models = as.integer(start_idx:end_idx)
   mat_final_data = c(val_loss = 999, best_epoch_loss = -1, val_auc = -1, model_id = -1)
-
+  
   t1 = Sys.time()
   
   for(i in batch_fitted_models){
@@ -45,7 +55,7 @@ nbatch = opt$batch
   t2-t1
   
   colnames(mat_final_data) = c("val_loss","best_epoch_loss","val_auc","model_id")
-
+  
   final_data = as_tibble(mat_final_data) %>% 
     mutate(model_id = as.integer(model_id)) %>% 
     filter(row_number() != 1)
