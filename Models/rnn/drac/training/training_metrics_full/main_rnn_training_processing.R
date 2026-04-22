@@ -23,45 +23,77 @@ library(dplyr)
 library(tidyr)
 library(readr)
 
-setwd("../../../../../")
+setwd("~/STA490---Fish_Classification")
 
-nbatch = opt$batch
+nbatch <- opt$batch
 
-{ 
-  models_per_batch = 200
-  total_models = 648
-  
-  start_idx = (nbatch - 1) * models_per_batch + 1
-  end_idx = min(nbatch * models_per_batch, total_models)
-  
-  if(start_idx > total_models){
-    stop("Batch index exceeds total number of models.")
-  }
-  
-  batch_fitted_models = as.integer(start_idx:end_idx)
-  mat_final_data = c(val_loss = 999, best_epoch_loss = -1, val_auc = -1, model_id = -1)
-  
-  t1 = Sys.time()
-  
-  for(i in batch_fitted_models){
-    model_fitted = file.exists(paste0("Models/rnn/drac/training/training_metrics_full/training_metrics_b",nbatch,"/training_output_",i,".rds"))
-    if(model_fitted){
-      aux_row = readRDS(paste0("Models/rnn/drac/training/training_metrics_full/training_metrics_b",nbatch,"/training_output_",i,".rds"))
-      mat_final_data = rbind(mat_final_data,aux_row)
-      rm(aux_row)
-    }
-  }
-  t2 = Sys.time()
-  t2-t1
-  
-  colnames(mat_final_data) = c("val_loss","best_epoch_loss","val_auc","model_id")
-  
-  final_data = as_tibble(mat_final_data) %>% 
-    mutate(model_id = as.integer(model_id)) %>% 
-    filter(row_number() != 1)
-  
+models_per_batch <- 200
+total_models <- 648
+
+start_idx <- (nbatch - 1) * models_per_batch + 1
+end_idx <- min(nbatch * models_per_batch, total_models)
+
+if (start_idx > total_models) {
+  stop("Batch index exceeds total number of models.")
 }
 
-saveRDS(final_data,file = paste0("Models/rnn/drac/training/training_metrics_full/val_metrics_b",nbatch,".rds"))
+batch_fitted_models <- as.integer(start_idx:end_idx)
 
-print(paste0("Output from the directory training_metrics_b",nbatch," processed !"))
+input_dir <- file.path(
+  "Models", "rnn", "drac", "training",
+  "training_metrics_full",
+  paste0("training_metrics_b", nbatch)
+)
+
+output_file <- file.path(
+  "Models", "rnn", "drac", "training",
+  "training_metrics_full",
+  paste0("val_metrics_b", nbatch, ".rds")
+)
+
+cat("Working directory:\n")
+print(getwd())
+
+cat("Input directory exists:\n")
+print(dir.exists(input_dir))
+
+if (!dir.exists(input_dir)) {
+  stop(paste("Input directory does not exist:", input_dir))
+}
+
+final_data <- tibble(
+  val_loss = numeric(),
+  best_epoch_loss = numeric(),
+  val_auc = numeric(),
+  model_id = integer()
+)
+
+t1 <- Sys.time()
+
+for (i in batch_fitted_models) {
+  infile <- file.path(input_dir, paste0("training_output_", i, ".rds"))
+  
+  if (file.exists(infile)) {
+    aux_row <- readRDS(infile)
+    
+    aux_row <- tibble(
+      val_loss = as.numeric(aux_row[1]),
+      best_epoch_loss = as.numeric(aux_row[2]),
+      val_auc = as.numeric(aux_row[3]),
+      model_id = as.integer(aux_row[4])
+    )
+    
+    final_data <- bind_rows(final_data, aux_row)
+  }
+}
+
+t2 <- Sys.time()
+print(t2 - t1)
+
+cat("Number of rows collected:\n")
+print(nrow(final_data))
+
+saveRDS(final_data, file = output_file)
+
+print(paste0("Output from training_metrics_b", nbatch, " processed!"))
+

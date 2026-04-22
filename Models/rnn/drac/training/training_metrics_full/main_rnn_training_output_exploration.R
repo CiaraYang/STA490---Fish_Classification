@@ -29,3 +29,4 @@ top20_models = top20_configs %>%
 
 saveRDS(top20_configs, "Models/rnn/drac/training/training_metrics_full/top20_configs.rds")
 saveRDS(top20_models, "Models/rnn/drac/training/training_metrics_full/top20_models.rds")
+

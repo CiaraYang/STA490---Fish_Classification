@@ -11,7 +11,7 @@ option_list = list(
               help="model ID [default= %default]", metavar="integer"),
   make_option(c("-b", "--batch"), type="integer", default="1", 
               help="100k batch ID for rerunning missing models [default= %default]", metavar="integer"),
-  make_option(c("-r", "--rerun"), type="character", default="n",
+  make_option(c("-r", "--rerun"), type="cypharacter", default="n",
               help="Rerun missing models [default= %default]", metavar="character")
   
 )
