@@ -182,3 +182,17 @@ dummy_y_test <- to_categorical(y_test, num_classes = 2)
 # saveRDS(dummy_y_test, "Data/dummy_y_test.rds")
 # 
 # cat("Saved all RDS files to Data/\n")
+
+saveRDS(train_df, "Data/train_df.rds")
+saveRDS(validate_df, "Data/validate_df.rds")
+saveRDS(test_df, "Data/test_df.rds")
+
+track_distance_df <- tracks_keep %>%
+  mutate(
+    distance_to_thermocline = abs(mid_depth - thermo_depth)
+  ) %>%
+  select(
+    track_id, Region_name, Year, Month, Location, kHz, species,
+    min_depth, max_depth, mid_depth, thermo_depth, distance_to_thermocline
+  )
+saveRDS(track_distance_df, "Data/track_distance_df.rds")

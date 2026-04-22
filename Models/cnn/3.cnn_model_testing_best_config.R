@@ -231,3 +231,22 @@ ggplot(threshold_results, aes(x = threshold)) +
     color = "Metric"
   ) +
   theme_minimal()
+
+# save objects for misclassification analysis
+prediction_outputs <- tibble(
+  row_id = seq_along(species_pred),
+  true_label = as.character(true_labels),
+  pred_label = as.character(species_pred),
+  prob_smelt = prob_smelt,
+  prob_alewife = 1 - prob_smelt
+)
+
+saveRDS(prediction_outputs, "Models/cnn/drac/test/prediction_outputs.rds")
+saveRDS(threshold_results, "Models/cnn/drac/test/threshold_results.rds")
+saveRDS(metrics_tbl_cnn, "Models/cnn/drac/test/metrics_tbl_cnn.rds")
+
+save(
+  pred_probs, prob_smelt, true_labels, species_pred,
+  best_threshold, cm, test_auc, metrics_tbl_cnn,
+  file = "Models/cnn/drac/test/final_test_objects.RData"
+)
