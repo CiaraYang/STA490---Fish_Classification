@@ -1,3 +1,4 @@
-This folder will contain all scripts and notebooks related to exploratory data analysis for the fish species classification project.
+## EDA
 
-The goal of EDA is to understand the structure, quality, and key characteristics of the data before model development. Once the dataset is available, this folder will be used to perform initial inspections, visualizations, and summary analyses that inform preprocessing decisions and modeling choices.
+- [`eda_old_data/`](EDA/eda_old_data/) — previous group’s dataset  
+- [`eda_new_data/`](EDA/eda_new_data/) — new dataset provided by Dak De Kerckhove and Amelia (Mia) McReynolds  
