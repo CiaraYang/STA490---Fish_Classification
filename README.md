@@ -6,7 +6,7 @@ The Fish Species Classification project investigates whether wideband acoustic s
 
 The project integrates data preprocessing, feature representation, and neural network modeling to capture the spectral and structural characteristics of acoustic signals. Four neural network architectures were implemented: deep neural networks (DNN), convolutional neural networks (CNN), residual networks (ResNet), and recurrent neural networks (RNN). These models allow us to capture both local patterns and sequential dependencies in the acoustic data.
 
-Model performance was evaluated using validation-based metrics, and the final model was selected based on predictive accuracy and generalization performance on a held-out test set. This project demonstrates the potential of non-invasive acoustic monitoring for ecological research and fisheries management.
+Model performance was evaluated using validation-based metrics, and the final model was selected based on sensitivity, specificity, balanced accuracy and generalization performance on a held-out test set. This project demonstrates the potential of non-invasive acoustic monitoring for ecological research and fisheries management.
 
 ## File Structure
 
