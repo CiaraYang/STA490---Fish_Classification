@@ -29,4 +29,4 @@
 - [`rnn_final_model_selection_streide3_no_threshold_tuning.R`](Models/rnn/rnn_final_model_selection_streide3_no_threshold_tuning.R)
 
 ### Step 4: Testing
-- - [`rnn_final_model_testing_stride3_no_threshold_turning.R`](Models/rnn/rnn_final_model_testing_stride3_no_threshold_turning.R)  
+-  [`rnn_final_model_testing_stride3_no_threshold_turning.R`](Models/rnn/rnn_final_model_testing_stride3_no_threshold_turning.R)  
