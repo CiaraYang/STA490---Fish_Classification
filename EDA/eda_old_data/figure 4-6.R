@@ -1,0 +1,164 @@
+
+#load("processed_AnalysisData_no200.RData")
+df <- processed_data_no200
+
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(scales)
+
+df_2 <- df %>%
+  filter(spCode %in% c(81, 316)) %>%
+  mutate(spCode = factor(spCode))
+
+
+
+species_colors <- c(
+  "81"  = "#E76F51",   # red
+  "316" = "#2A9D8F"    # teal
+)
+
+
+
+track_df <- df_2 %>%
+  group_by(spCode, FishTrack) %>%
+  summarise(
+    Fish_ID = fishNum,
+    n_pings = n(),
+    time_in_beam = max(Time_in_beam, na.rm = TRUE),
+    TS_mean = max(TS_mean, na.rm = TRUE),
+    MaxTSdiff = max(MaxTSdiff, na.rm = TRUE),
+    Target_depth_mean = max(Target_depth_mean, na.rm = TRUE),
+    Target_depth_max = max(Target_depth_max, na.rm = TRUE),
+    Target_depth_min = min(Target_depth_min, na.rm = TRUE),
+    Speed_4D_mean_unsmoothed = max(Speed_4D_mean_unsmoothed, na.rm = TRUE),
+    StandDev_Angles_Minor_Axis = max(StandDev_Angles_Minor_Axis, na.rm = TRUE),
+    StandDev_Angles_Major_Axis = max(StandDev_Angles_Major_Axis, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(depth_span = Target_depth_max - Target_depth_min)
+
+
+
+Depth Distribution
+
+mean_df <- track_df %>%
+  group_by(spCode) %>%
+  summarise(mu = mean(Target_depth_mean, na.rm = TRUE))
+
+ggplot(track_df, aes(x = Target_depth_mean, color = spCode, fill = spCode)) +
+  
+  geom_density(alpha = 0.25, linewidth = 1) +
+  
+  # Mean lines
+  geom_vline(
+    data = mean_df,
+    aes(xintercept = mu, color = spCode),
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  
+  # Mean labels
+  geom_text(
+    data = mean_df,
+    aes(
+      x = mu,
+      y = 1.5,                     # vertical position of text (adjust if needed)
+      label = paste0("Mean = ", round(mu, 2), " m"),
+      color = spCode
+    ),
+    angle = 90,
+    vjust = -0.5,
+    size = 4,
+    show.legend = FALSE
+  ) +
+  
+  labs(
+    title = "Distribution of mean depth by species (track-level)",
+    x = "Target_depth_mean (m)",
+    y = "Density",
+    color = "Species",
+    fill = "Species"
+  ) +
+  scale_color_manual(
+    values = c("81" = "#F8766D", "316" = "#00BFC4"),
+    labels = c("LT (81)", "SMB (316)")
+  ) +
+  scale_fill_manual(
+    values = c("81" = "#F8766D", "316" = "#00BFC4"),
+    labels = c("LT (81)", "SMB (316)")
+  ) +
+  
+  theme_minimal()
+
+
+
+Depth vs TS
+
+ggplot(track_df, aes(x = Target_depth_mean, y = TS_mean, color = spCode)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Depth vs TS_mean",
+       x = "Target_depth_mean", y = "TS_mean",
+       color = "Species") +
+  scale_color_manual(
+    values = c("81" = "#F8766D", "316" = "#00BFC4"),
+    labels = c("LT (81)", "SMB (316)")
+  ) +
+  theme_minimal()
+
+
+
+Airbladder Size and Shape
+
+library(patchwork)
+
+p_len <- ggplot(ab_track, aes(x = spCode, y = airbladderTotalLength, fill = spCode)) +
+  geom_boxplot(alpha = 0.6, outlier.alpha = 0.4) +
+  labs(title = "Airbladder Total Length", x = "Species", y = "Length") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none") +
+  scale_x_discrete(
+    labels = c(
+      "81"  = "Lake Trout",
+      "316" = "Smallmouth Bass"
+    )
+  )
+
+
+p_wid <- ggplot(ab_track, aes(x = spCode, y = airBladderWidth, fill = spCode)) +
+  geom_boxplot(alpha = 0.6, outlier.alpha = 0.4) +
+  labs(title = "Airbladder Width", x = "Species", y = "Width") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none") +
+  scale_x_discrete(
+    labels = c(
+      "81"  = "Lake Trout",
+      "316" = "Smallmouth Bass"
+    )
+  )
+
+
+ab_track2 <- ab_track %>%
+  mutate(ab_ratio = airbladderTotalLength / airBladderWidth)
+
+p_ratio <- ggplot(ab_track2, aes(x = spCode, y = ab_ratio, fill = spCode)) +
+  geom_boxplot(alpha = 0.6, outlier.alpha = 0.4) +
+  labs(title = "Shape Ratio (Length / Width)", x = "Species", y = "Ratio") +
+  scale_x_discrete(
+    labels = c(
+      "81"  = "Lake Trout",
+      "316" = "Smallmouth Bass"
+    )
+  )+
+  theme_minimal(base_size = 12) +
+  #  theme(legend.position = "none") +
+  scale_fill_manual(
+    values = c("81" = "#F8766D", "316" = "#00BFC4"),
+    labels = c("LT (81)", "SMB (316)")
+  )
+
+# ONE big combined diagram (prints as one figure)
+(p_len | p_wid | p_ratio)
+
+
