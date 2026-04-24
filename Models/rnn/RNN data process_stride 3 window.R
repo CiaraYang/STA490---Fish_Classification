@@ -8,6 +8,8 @@
 # - stride = 3
 # =========================================================
 
+#.libPaths('~/R/library')
+
 library(readr)
 library(dplyr)
 library(tidyr)
@@ -278,31 +280,31 @@ print(split_track_summary)
 # -------------------------
 # Standardize signal using training pings only
 # -------------------------
-signal_train_ping <- as.matrix(train_df_ping[, freq_cols])
-signal_validate_ping <- as.matrix(validate_df_ping[, freq_cols])
-signal_test_ping <- as.matrix(test_df_ping[, freq_cols])
-
-signal_means <- apply(signal_train_ping, 2, mean, na.rm = TRUE)
-signal_sds <- apply(signal_train_ping, 2, sd, na.rm = TRUE)
-signal_sds[signal_sds == 0] <- 1
-
-train_df_ping[, freq_cols] <- scale(
-  train_df_ping[, freq_cols],
-  center = signal_means,
-  scale = signal_sds
-)
-
-validate_df_ping[, freq_cols] <- scale(
-  validate_df_ping[, freq_cols],
-  center = signal_means,
-  scale = signal_sds
-)
-
-test_df_ping[, freq_cols] <- scale(
-  test_df_ping[, freq_cols],
-  center = signal_means,
-  scale = signal_sds
-)
+# signal_train_ping <- as.matrix(train_df_ping[, freq_cols])
+# signal_validate_ping <- as.matrix(validate_df_ping[, freq_cols])
+# signal_test_ping <- as.matrix(test_df_ping[, freq_cols])
+# 
+# signal_means <- apply(signal_train_ping, 2, mean, na.rm = TRUE)
+# signal_sds <- apply(signal_train_ping, 2, sd, na.rm = TRUE)
+# signal_sds[signal_sds == 0] <- 1
+# 
+# train_df_ping[, freq_cols] <- scale(
+#   train_df_ping[, freq_cols],
+#   center = signal_means,
+#   scale = signal_sds
+# )
+# 
+# validate_df_ping[, freq_cols] <- scale(
+#   validate_df_ping[, freq_cols],
+#   center = signal_means,
+#   scale = signal_sds
+# )
+# 
+# test_df_ping[, freq_cols] <- scale(
+#   test_df_ping[, freq_cols],
+#   center = signal_means,
+#   scale = signal_sds
+# )
 
 # -------------------------
 # Function: build 5-ping sequences with stride = 3
@@ -495,22 +497,25 @@ print(cbind(
 # -------------------------
 # Save
 # -------------------------
-saveRDS(x_train, "Data/RNN_data/x_train_stride3.rds")
-saveRDS(x_validate, "Data/RNN_data/x_validate_stride3.rds")
-saveRDS(x_test, "Data/RNN_data/x_test_stride3.rds")
 
-saveRDS(y_train, "Data/RNN_data/y_train_stride3.rds")
-saveRDS(y_validate, "Data/RNN_data/y_validate_stride3.rds")
-saveRDS(y_test, "Data/RNN_data/y_test_stride3.rds")
+dir.create("Data/RNN_data/stride3", recursive = TRUE, showWarnings = FALSE)
 
-saveRDS(dummy_y_train, "Data/RNN_data/dummy_y_train_stride3.rds")
-saveRDS(dummy_y_val, "Data/RNN_data/dummy_y_val_stride3.rds")
-saveRDS(dummy_y_test, "Data/RNN_data/dummy_y_test_stride3.rds")
+saveRDS(x_train, "Data/RNN_data/stride3/x_train_stride3.rds")
+saveRDS(x_validate, "Data/RNN_data/stride3/x_validate_stride3.rds")
+saveRDS(x_test, "Data/RNN_data/stride3/x_test_stride3.rds")
 
-saveRDS(train_seq_info, "Data/RNN_data/train_seq_info_stride3.rds")
-saveRDS(validate_seq_info, "Data/RNN_data/validate_seq_info_stride3.rds")
-saveRDS(test_seq_info, "Data/RNN_data/test_seq_info_stride3.rds")
+saveRDS(y_train, "Data/RNN_data/stride3/y_train_stride3.rds")
+saveRDS(y_validate, "Data/RNN_data/stride3/y_validate_stride3.rds")
+saveRDS(y_test, "Data/RNN_data/stride3/y_test_stride3.rds")
 
-saveRDS(track_df, "Data/RNN_data/track_df_stride3.rds")
+saveRDS(dummy_y_train, "Data/RNN_data/stride3/dummy_y_train_stride3.rds")
+saveRDS(dummy_y_val, "Data/RNN_data/stride3/dummy_y_val_stride3.rds")
+saveRDS(dummy_y_test, "Data/RNN_data/stride3/dummy_y_test_stride3.rds")
 
-cat("\nSaved all stride=3 RNN RDS files to Data/RNN_data/\n")
+saveRDS(train_seq_info, "Data/RNN_data/stride3/train_seq_info_stride3.rds")
+saveRDS(validate_seq_info, "Data/RNN_data/stride3/validate_seq_info_stride3.rds")
+saveRDS(test_seq_info, "Data/RNN_data/stride3/test_seq_info_stride3.rds")
+
+saveRDS(track_df, "Data/RNN_data/stride3/track_df_stride3.rds")
+
+cat("\nSaved all stride=3 RNN RDS files to Data/RNN_data/stride3\n")
